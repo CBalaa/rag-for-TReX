@@ -22,18 +22,18 @@ def test_client_connect_refuses_when_no_daemon(
 
 
 def test_is_daemon_supervised_reads_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The supervised branch is controlled by COCOINDEX_CODE_DAEMON_SUPERVISED=1."""
-    monkeypatch.delenv("COCOINDEX_CODE_DAEMON_SUPERVISED", raising=False)
+    """The supervised branch is controlled by RAG4TREX_DAEMON_SUPERVISED=1."""
+    monkeypatch.delenv("RAG4TREX_DAEMON_SUPERVISED", raising=False)
     assert client._is_daemon_supervised() is False
 
-    monkeypatch.setenv("COCOINDEX_CODE_DAEMON_SUPERVISED", "1")
+    monkeypatch.setenv("RAG4TREX_DAEMON_SUPERVISED", "1")
     assert client._is_daemon_supervised() is True
 
     # Anything other than exact "1" is not supervised (avoid accidental truthy values).
-    monkeypatch.setenv("COCOINDEX_CODE_DAEMON_SUPERVISED", "true")
+    monkeypatch.setenv("RAG4TREX_DAEMON_SUPERVISED", "true")
     assert client._is_daemon_supervised() is False
 
-    monkeypatch.setenv("COCOINDEX_CODE_DAEMON_SUPERVISED", "0")
+    monkeypatch.setenv("RAG4TREX_DAEMON_SUPERVISED", "0")
     assert client._is_daemon_supervised() is False
 
 
@@ -83,7 +83,7 @@ def test_connect_restarts_ensured_daemon_on_stale_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An already-ensured daemon reporting stale global settings (resp.ok True,
-    moved mtime) is restarted, not surfaced as an error. This is the `ccc init`
+    moved mtime) is restarted, not surfaced as an error. This is the `rag4trex init`
     retry path, where rewriting global_settings.yml changes its mtime.
     """
     from cocoindex_code.protocol import HandshakeResponse

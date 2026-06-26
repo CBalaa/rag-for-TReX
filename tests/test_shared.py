@@ -107,7 +107,7 @@ async def test_check_embedding_error() -> None:
     assert result.error is not None
     assert result.error.startswith("RuntimeError:")
     assert "boom" in result.error
-    # The full traceback is captured so `ccc doctor` can surface it for debugging.
+    # The full traceback is captured so `rag4trex doctor` can surface it for debugging.
     assert result.traceback is not None
     assert "Traceback (most recent call last):" in result.traceback
     assert "boom" in result.traceback

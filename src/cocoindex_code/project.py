@@ -573,9 +573,6 @@ class Project:
                 to a ``ChunkerFn``. When a suffix matches, the registered
                 chunker is called instead of the built-in splitter.
         """
-        settings_dir = project_root / ".cocoindex_code"
-        settings_dir.mkdir(parents=True, exist_ok=True)
-
         db_dir = resolve_db_dir(project_root)
         db_dir.mkdir(parents=True, exist_ok=True)
 

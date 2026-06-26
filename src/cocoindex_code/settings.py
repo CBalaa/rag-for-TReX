@@ -77,6 +77,14 @@ DEFAULT_EXCLUDED_PATTERNS: list[str] = [
     "**/.*",  # Hidden directories
     ".rag4trex.yml",
     "**/.rag4trex.yml",
+    ".rag4trex",
+    ".rag4trex/**",
+    "**/.rag4trex",
+    "**/.rag4trex/**",
+    ".cocoindex_code",
+    ".cocoindex_code/**",
+    "**/.cocoindex_code",
+    "**/.cocoindex_code/**",
     "**/__pycache__",  # Python cache
     "**/node_modules",  # Node.js dependencies
     "**/target",  # Rust/Maven build output
@@ -84,7 +92,8 @@ DEFAULT_EXCLUDED_PATTERNS: list[str] = [
     "**/dist",  # Distribution directories
     "**/vendor/*.*/*",  # Go vendor directory (domain-based paths)
     "**/vendor/*",  # PHP vendor directory
-    "**/.cocoindex_code",  # Our own index directory
+    "**/.rag4trex",  # Our own index directory
+    "**/.cocoindex_code",  # Legacy index directory
 ]
 
 DEFAULT_DOCS_INCLUDED_PATTERNS: list[str] = [
@@ -273,13 +282,18 @@ def default_project_settings() -> ProjectSettings:
 # Path helpers
 # ---------------------------------------------------------------------------
 
-_SETTINGS_DIR_NAME = ".cocoindex_code"
+_SETTINGS_DIR_NAME = ".rag4trex"
+_LEGACY_SETTINGS_DIR_NAME = ".cocoindex_code"
 _PROJECT_SETTINGS_FILE_NAME = ".rag4trex.yml"  # project-level
 _LEGACY_SETTINGS_FILE_NAME = "settings.yml"  # legacy project-level
 _USER_SETTINGS_FILE_NAME = "global_settings.yml"  # user-level
 
-_ENV_DB_PATH_MAPPING = "COCOINDEX_CODE_DB_PATH_MAPPING"
-_ENV_HOST_PATH_MAPPING = "COCOINDEX_CODE_HOST_PATH_MAPPING"
+_ENV_USER_SETTINGS_DIR = "RAG4TREX_DIR"
+_LEGACY_ENV_USER_SETTINGS_DIR = "COCOINDEX_CODE_DIR"
+_ENV_DB_PATH_MAPPING = "RAG4TREX_DB_PATH_MAPPING"
+_LEGACY_ENV_DB_PATH_MAPPING = "COCOINDEX_CODE_DB_PATH_MAPPING"
+_ENV_HOST_PATH_MAPPING = "RAG4TREX_HOST_PATH_MAPPING"
+_LEGACY_ENV_HOST_PATH_MAPPING = "COCOINDEX_CODE_HOST_PATH_MAPPING"
 
 
 @dataclass
@@ -288,14 +302,26 @@ class PathMapping:
     target: Path
 
 
-def _parse_path_mapping(env_var: str) -> list[PathMapping]:
+def _getenv_preferred(env_var: str, legacy_env_var: str | None = None) -> tuple[str, str | None]:
+    """Return a preferred env var value, falling back to a legacy name."""
+    raw = os.environ.get(env_var)
+    if raw is not None:
+        return env_var, raw
+    if legacy_env_var is not None:
+        legacy_raw = os.environ.get(legacy_env_var)
+        if legacy_raw is not None:
+            return legacy_env_var, legacy_raw
+    return env_var, None
+
+
+def _parse_path_mapping(env_var: str, legacy_env_var: str | None = None) -> list[PathMapping]:
     """Parse a ``source=target[,source=target...]`` env var.
 
     Both source and target must be absolute paths. Returns an empty list when
     the env var is unset or blank. Raises ``ValueError`` on malformed entries.
     """
-    raw = os.environ.get(env_var, "")
-    if not raw.strip():
+    actual_env_var, raw = _getenv_preferred(env_var, legacy_env_var)
+    if raw is None or not raw.strip():
         return []
 
     mappings: list[PathMapping] = []
@@ -305,13 +331,15 @@ def _parse_path_mapping(env_var: str) -> list[PathMapping]:
             continue
         parts = entry.split("=", 1)
         if len(parts) != 2 or not parts[0] or not parts[1]:
-            raise ValueError(f"{env_var}: invalid entry {entry!r}, expected format 'source=target'")
+            raise ValueError(
+                f"{actual_env_var}: invalid entry {entry!r}, expected format 'source=target'"
+            )
         source = Path(parts[0])
         target = Path(parts[1])
         if not source.is_absolute():
-            raise ValueError(f"{env_var}: source path must be absolute, got {source!r}")
+            raise ValueError(f"{actual_env_var}: source path must be absolute, got {source!r}")
         if not target.is_absolute():
-            raise ValueError(f"{env_var}: target path must be absolute, got {target!r}")
+            raise ValueError(f"{actual_env_var}: target path must be absolute, got {target!r}")
         mappings.append(PathMapping(source=source.resolve(), target=target.resolve()))
     return mappings
 
@@ -344,41 +372,48 @@ _host_path_mapping: list[PathMapping] | None = None
 def resolve_db_dir(project_root: Path) -> Path:
     """Return the directory for database files given a project root.
 
-    Applies ``COCOINDEX_CODE_DB_PATH_MAPPING`` if set, otherwise falls back
-    to ``project_root / ".cocoindex_code"``.
+    Applies ``RAG4TREX_DB_PATH_MAPPING`` if set, otherwise falls back
+    to ``project_root / ".rag4trex"``. The legacy
+    ``COCOINDEX_CODE_DB_PATH_MAPPING`` env var is still accepted.
     """
     global _db_path_mapping  # noqa: PLW0603
     if _db_path_mapping is None:
-        _db_path_mapping = _parse_path_mapping(_ENV_DB_PATH_MAPPING)
+        _db_path_mapping = _parse_path_mapping(_ENV_DB_PATH_MAPPING, _LEGACY_ENV_DB_PATH_MAPPING)
 
     resolved = project_root.resolve()
     for mapping in _db_path_mapping:
         if resolved == mapping.source or resolved.is_relative_to(mapping.source):
             rel = resolved.relative_to(mapping.source)
             return mapping.target / rel
+    preferred = project_root / _SETTINGS_DIR_NAME
+    legacy = project_root / _LEGACY_SETTINGS_DIR_NAME
+    if not (preferred / _COCOINDEX_DB_NAME).exists() and (legacy / _COCOINDEX_DB_NAME).exists():
+        return legacy
     return project_root / _SETTINGS_DIR_NAME
 
 
 def get_db_path_mappings() -> list[PathMapping]:
-    """Return the parsed DB path mappings from ``COCOINDEX_CODE_DB_PATH_MAPPING``."""
+    """Return the parsed DB path mappings from ``RAG4TREX_DB_PATH_MAPPING``."""
     global _db_path_mapping  # noqa: PLW0603
     if _db_path_mapping is None:
-        _db_path_mapping = _parse_path_mapping(_ENV_DB_PATH_MAPPING)
+        _db_path_mapping = _parse_path_mapping(_ENV_DB_PATH_MAPPING, _LEGACY_ENV_DB_PATH_MAPPING)
     return list(_db_path_mapping)
 
 
 def get_host_path_mappings() -> list[PathMapping]:
-    """Return the parsed host path mappings from ``COCOINDEX_CODE_HOST_PATH_MAPPING``."""
+    """Return the parsed host path mappings from ``RAG4TREX_HOST_PATH_MAPPING``."""
     global _host_path_mapping  # noqa: PLW0603
     if _host_path_mapping is None:
-        _host_path_mapping = _parse_path_mapping(_ENV_HOST_PATH_MAPPING)
+        _host_path_mapping = _parse_path_mapping(
+            _ENV_HOST_PATH_MAPPING, _LEGACY_ENV_HOST_PATH_MAPPING
+        )
     return list(_host_path_mapping)
 
 
 def format_path_for_display(p: str | Path) -> str:
     """Translate a container path to its host equivalent for user-facing output.
 
-    No-op when ``COCOINDEX_CODE_HOST_PATH_MAPPING`` is unset or when ``p`` is a
+    No-op when ``RAG4TREX_HOST_PATH_MAPPING`` is unset or when ``p`` is a
     relative path / unmatched absolute path.
     """
     return _apply_mapping(get_host_path_mappings(), p, reverse=False)
@@ -420,18 +455,26 @@ def cocoindex_db_path(project_root: Path) -> Path:
 
 
 def user_settings_dir() -> Path:
-    """Return ``~/.cocoindex_code/``.
+    """Return the user-level rag4trex settings directory.
 
-    Respects ``COCOINDEX_CODE_DIR`` env var for overriding the base directory.
+    Respects ``RAG4TREX_DIR`` for overriding the base directory. The legacy
+    ``COCOINDEX_CODE_DIR`` env var and ``~/.cocoindex_code`` path are still
+    accepted when present.
     """
-    override = os.environ.get("COCOINDEX_CODE_DIR")
+    _, override = _getenv_preferred(_ENV_USER_SETTINGS_DIR, _LEGACY_ENV_USER_SETTINGS_DIR)
     if override:
         return Path(override)
-    return Path.home() / _SETTINGS_DIR_NAME
+    preferred = Path.home() / _SETTINGS_DIR_NAME
+    legacy = Path.home() / _LEGACY_SETTINGS_DIR_NAME
+    if not (preferred / _USER_SETTINGS_FILE_NAME).exists() and (
+        legacy / _USER_SETTINGS_FILE_NAME
+    ).exists():
+        return legacy
+    return preferred
 
 
 def user_settings_path() -> Path:
-    """Return ``~/.cocoindex_code/global_settings.yml``."""
+    """Return the preferred or existing user-level ``global_settings.yml`` path."""
     return user_settings_dir() / _USER_SETTINGS_FILE_NAME
 
 
@@ -442,7 +485,7 @@ def project_settings_path(project_root: Path) -> Path:
 
 def legacy_project_settings_path(project_root: Path) -> Path:
     """Return the legacy project settings path."""
-    return project_root / _SETTINGS_DIR_NAME / _LEGACY_SETTINGS_FILE_NAME
+    return project_root / _LEGACY_SETTINGS_DIR_NAME / _LEGACY_SETTINGS_FILE_NAME
 
 
 def project_settings_paths(project_root: Path) -> list[Path]:
@@ -474,14 +517,16 @@ def find_project_root(start: Path) -> Path | None:
 
 
 def find_legacy_project_root(start: Path) -> Path | None:
-    """Walk up from *start* looking for a ``.cocoindex_code/`` dir that contains ``cocoindex.db``.
+    """Walk up from *start* looking for an existing index directory.
 
-    Used by the backward-compat ``cocoindex-code`` entrypoint to re-anchor to a
-    previously-indexed project tree.  Returns the first matching directory, or ``None``.
+    Used by compatibility paths to re-anchor to a previously-indexed project
+    tree. Returns the first matching directory, or ``None``.
     """
     current = start.resolve()
     while True:
-        if (current / _SETTINGS_DIR_NAME / _COCOINDEX_DB_NAME).exists():
+        if (current / _SETTINGS_DIR_NAME / _COCOINDEX_DB_NAME).exists() or (
+            current / _LEGACY_SETTINGS_DIR_NAME / _COCOINDEX_DB_NAME
+        ).exists():
             return current
         parent = current.parent
         if parent == current:
@@ -733,7 +778,7 @@ def _project_settings_from_dict(d: dict[str, Any]) -> ProjectSettings:
 
 
 def load_user_settings() -> UserSettings:
-    """Read ``~/.cocoindex_code/global_settings.yml``.
+    """Read user-level ``global_settings.yml``.
 
     Raises ``FileNotFoundError`` if missing, ``ValueError`` if incomplete.
     """
@@ -760,8 +805,8 @@ def save_user_settings(settings: UserSettings) -> Path:
 
 
 _INITIAL_HEADER = (
-    "# CocoIndex Code — global settings.\n"
-    "# After editing this file, run `ccc doctor` to verify your configuration.\n"
+    "# rag4trex global settings.\n"
+    "# After editing this file, run `rag4trex doctor` to verify your configuration.\n"
     "\n"
 )
 
@@ -819,7 +864,7 @@ def save_initial_user_settings(
 ) -> Path:
     """Write the initial global_settings.yml with comment hints and env examples.
 
-    Only used by `ccc init` on first-time setup. Emits only the `embedding:`
+    Only used by `rag4trex init` on first-time setup. Emits only the `embedding:`
     block from the input; the `envs:` section is a commented-out template.
     Subsequent programmatic writes use `save_user_settings` and do not
     preserve comments.

@@ -1,11 +1,11 @@
 ---
 name: rag4trex
-description: "Use this skill when repository RAG search or location is needed through the provided MCP tools. Trigger phrases include 'search the codebase', 'find code related to', 'search docs', 'repo RAG', 'locate in repo', 'ccc', 'rag4trex'."
+description: "Use this skill when repository RAG search or location is needed through the provided MCP tools. Trigger phrases include 'search the codebase', 'find code related to', 'search docs', 'repo RAG', 'locate in repo', 'rag4trex'."
 ---
 
 # rag4trex - MCP-Only Repo RAG
 
-Use only the provided MCP tools for RAG discovery and repository location. Do not use the `rag4trex` or `ccc` CLI from this skill for search, indexing, or locate workflows.
+Use only the provided MCP tools for RAG discovery and repository location. Do not use the `rag4trex` CLI from this skill for search, indexing, or locate workflows.
 
 ## MCP Tools
 

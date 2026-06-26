@@ -1,6 +1,6 @@
-r"""``ccc grep`` — by-example structural code search over files.
+r"""``rag4trex grep`` — by-example structural code search over files.
 
-Unlike ``ccc search`` (semantic, needs the index + daemon + embeddings), ``grep``
+Unlike ``rag4trex search`` (semantic, needs the index + daemon + embeddings), ``grep``
 runs entirely locally: it compiles a structural pattern (cocoindex ``code_match``)
 once per language, walks the matching source files, and matches them in parallel.
 No index or daemon is required.
@@ -405,7 +405,7 @@ def render_file(fm: FileMatches, *, color: bool) -> str:
 
 
 def render_results(results: list[FileMatches], *, color: bool) -> str:
-    """Render a list of per-file matches in the ``ccc grep`` output format, files
+    """Render a list of per-file matches in the ``rag4trex grep`` output format, files
     separated by a blank line. The CLI streams with :func:`render_file` instead;
     this is the batch form (used in tests)."""
     return "\n\n".join(render_file(fm, color=color) for fm in results)

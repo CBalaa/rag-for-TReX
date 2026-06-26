@@ -50,8 +50,8 @@ from .settings import (
 )
 
 app = _typer.Typer(
-    name="ccc",
-    help="CocoIndex Code — index and search codebases.",
+    name="rag4trex",
+    help="rag4trex — repository RAG and MCP tools.",
     no_args_is_help=True,
 )
 
@@ -61,14 +61,14 @@ app.add_typer(daemon_app, name="daemon")
 
 @app.callback()
 def _apply_host_cwd() -> None:
-    """Honor ``COCOINDEX_CODE_HOST_CWD`` when forwarded from a ``docker exec`` wrapper.
+    """Honor ``RAG4TREX_HOST_CWD`` when forwarded from a ``docker exec`` wrapper.
 
     The env var carries the host shell's pwd verbatim. We normalize it through
     the host path mapping to container form and ``chdir`` there so
     cwd-driven discovery (``find_project_root`` etc.) sees the user's real
     project subtree. Unset → no-op.
     """
-    host_cwd = os.environ.get("COCOINDEX_CODE_HOST_CWD")
+    host_cwd = os.environ.get("RAG4TREX_HOST_CWD") or os.environ.get("COCOINDEX_CODE_HOST_CWD")
     if not host_cwd:
         return
     target = normalize_input_path(host_cwd)
@@ -76,7 +76,7 @@ def _apply_host_cwd() -> None:
         os.chdir(target)
     except OSError as e:
         _typer.echo(
-            f"Warning: COCOINDEX_CODE_HOST_CWD={host_cwd!r} → {target!r} "
+            f"Warning: RAG4TREX_HOST_CWD={host_cwd!r} -> {target!r} "
             f"is not accessible: {e}. Continuing with cwd={os.getcwd()!r}.",
             err=True,
         )
@@ -97,7 +97,7 @@ def require_project_root() -> Path:
     if not gs_path.is_file():
         _typer.echo(
             f"Error: Global settings not found: {format_path_for_display(gs_path)}\n"
-            "Run `ccc init` to create it with default settings.",
+            "Run `rag4trex init` to create it with default settings.",
             err=True,
         )
         raise _typer.Exit(code=1)
@@ -105,7 +105,7 @@ def require_project_root() -> Path:
     if root is None:
         _typer.echo(
             "Error: Not in an initialized project directory.\n"
-            "Run `ccc init` in your project root to get started.",
+            "Run `rag4trex init` in your project root to get started.",
             err=True,
         )
         raise _typer.Exit(code=1)
@@ -354,12 +354,14 @@ def _search_with_wait_spinner(
     return resp
 
 
-_GITIGNORE_COMMENT = "# CocoIndex Code (ccc)"
-_GITIGNORE_ENTRY = "/.cocoindex_code/"
+_GITIGNORE_COMMENT = "# rag4trex"
+_GITIGNORE_ENTRY = "/.rag4trex/"
+_LEGACY_GITIGNORE_COMMENT = "# CocoIndex Code (ccc)"
+_LEGACY_GITIGNORE_ENTRY = "/.cocoindex_code/"
 
 
 def add_to_gitignore(project_root: Path) -> None:
-    """Add ``/.cocoindex_code/`` to ``.gitignore`` if ``.git`` exists.
+    """Add ``/.rag4trex/`` to ``.gitignore`` if ``.git`` exists.
 
     Creates ``.gitignore`` if it doesn't exist.  Skips if the entry is already
     present.
@@ -382,7 +384,7 @@ def add_to_gitignore(project_root: Path) -> None:
 
 
 def remove_from_gitignore(project_root: Path) -> None:
-    """Remove ``/.cocoindex_code/`` entry and its comment from ``.gitignore``."""
+    """Remove rag4trex entries and legacy entries from ``.gitignore``."""
     gitignore = project_root / ".gitignore"
     if not gitignore.is_file():
         return
@@ -392,9 +394,12 @@ def remove_from_gitignore(project_root: Path) -> None:
     i = 0
     while i < len(lines):
         stripped = lines[i].rstrip("\n\r")
-        if stripped == _GITIGNORE_ENTRY:
+        if stripped in {_GITIGNORE_ENTRY, _LEGACY_GITIGNORE_ENTRY}:
             # Skip this line; also remove preceding comment if it matches
-            if new_lines and new_lines[-1].rstrip("\n\r") == _GITIGNORE_COMMENT:
+            if new_lines and new_lines[-1].rstrip("\n\r") in {
+                _GITIGNORE_COMMENT,
+                _LEGACY_GITIGNORE_COMMENT,
+            }:
                 new_lines.pop()
             i += 1
             continue
@@ -516,7 +521,7 @@ def _run_init_model_check() -> bool:
     """Ask the daemon to test the embedding model; print results. Return True if all pass.
 
     Drives the check via `DoctorRequest(project_root=None)`. The daemon loads
-    the model once and stays running, so the user's next `ccc index` starts
+    the model once and stays running, so the user's next `rag4trex index` starts
     warm. Both DaemonStartError and generic exceptions are rendered as a
     synthetic failed DoctorCheckResult — uniform failure-output shape. The
     caller decides what to show on failure (retry prompt / next-steps block).
@@ -570,7 +575,7 @@ def _print_init_next_steps(settings_path: Path) -> None:
         "     to change the model or add API keys under `envs:`.",
         err=True,
     )
-    _typer.echo("  2. Run  `ccc doctor`  to verify.", err=True)
+    _typer.echo("  2. Run  `rag4trex doctor`  to verify.", err=True)
     _typer.echo()  # trailing blank before whatever init prints next
 
 
@@ -682,8 +687,8 @@ def init(
             display_parent = format_path_for_display(parent)
             _typer.echo(
                 f"Warning: A parent directory has a project marker: {display_parent}\n"
-                "You might want to run `ccc init` there instead.\n"
-                "Use `ccc init -f` to initialize here anyway."
+                "You might want to run `rag4trex init` there instead.\n"
+                "Use `rag4trex init -f` to initialize here anyway."
             )
             raise _typer.Exit(code=1)
 
@@ -695,7 +700,7 @@ def init(
     add_to_gitignore(cwd)
 
     _typer.echo("You can edit the settings files to customize indexing behavior.")
-    _typer.echo("Run `ccc index` to build the index.")
+    _typer.echo("Run `rag4trex index` to build the index.")
 
 
 @app.command("install-skill")
@@ -1188,7 +1193,8 @@ def reset(
 ) -> None:
     """Reset project databases and optionally remove settings."""
     project_root = require_project_root()
-    cocoindex_dir = project_root / ".cocoindex_code"
+    rag4trex_dir = project_root / ".rag4trex"
+    legacy_cocoindex_dir = project_root / ".cocoindex_code"
     db_dir = resolve_db_dir(project_root)
 
     db_files = [
@@ -1236,17 +1242,17 @@ def reset(
             f.unlink(missing_ok=True)
 
     if all_:
-        # Remove db_dir if empty and different from cocoindex_dir
-        if db_dir != cocoindex_dir:
+        # Remove db_dir if empty and different from the project-local defaults.
+        if db_dir not in {rag4trex_dir, legacy_cocoindex_dir}:
             try:
                 db_dir.rmdir()
             except OSError:
                 pass  # Not empty or doesn't exist
-        # Remove .cocoindex_code/ if empty
-        try:
-            cocoindex_dir.rmdir()
-        except OSError:
-            pass  # Not empty
+        for local_dir in (rag4trex_dir, legacy_cocoindex_dir):
+            try:
+                local_dir.rmdir()
+            except OSError:
+                pass  # Not empty
 
         # Remove from .gitignore
         remove_from_gitignore(project_root)
@@ -1255,7 +1261,7 @@ def reset(
         _typer.echo("Databases deleted.")
         if any(path.exists() for path in settings_files):
             _typer.echo(
-                "Settings file still exists. Run `ccc reset --all` to remove it too,\n"
+                "Settings file still exists. Run `rag4trex reset --all` to remove it too,\n"
                 "or edit it manually."
             )
 
@@ -1291,7 +1297,10 @@ def _print_doctor_result(result: DoctorCheckResult, *, verbose: bool = False) ->
                 _typer.echo(_click.style(f"    {line}", fg="bright_black"), err=True)
         else:
             _typer.echo(
-                _click.style("    Run `ccc doctor -v` for the full traceback.", fg="bright_black"),
+                _click.style(
+                    "    Run `rag4trex doctor -v` for the full traceback.",
+                    fg="bright_black",
+                ),
                 err=True,
             )
 

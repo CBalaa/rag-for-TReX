@@ -71,7 +71,7 @@ _daemon_ensured = False
 
 # Tracks which daemon-side handshake warnings have already been surfaced to
 # the user in this process. We print each distinct warning at most once per
-# `ccc` invocation — see `_print_handshake_warnings`.
+# CLI invocation — see `_print_handshake_warnings`.
 _surfaced_warnings: set[str] = set()
 
 
@@ -107,7 +107,10 @@ def _is_daemon_supervised() -> bool:
     daemon respawn. The client in that mode calls ``stop_daemon`` but never
     ``start_daemon`` — it just waits for the socket to reappear.
     """
-    return os.environ.get("COCOINDEX_CODE_DAEMON_SUPERVISED") == "1"
+    return (
+        os.environ.get("RAG4TREX_DAEMON_SUPERVISED")
+        or os.environ.get("COCOINDEX_CODE_DAEMON_SUPERVISED")
+    ) == "1"
 
 
 def _connect_and_handshake() -> Connection:
@@ -116,7 +119,7 @@ def _connect_and_handshake() -> Connection:
     Returns the open connection for the caller to send exactly one request.
 
     Automatically starts or restarts the daemon when it is absent or running
-    with stale global settings (e.g. a ``ccc init`` retry rewrote
+    with stale global settings (e.g. a ``rag4trex init`` retry rewrote
     ``global_settings.yml`` after the daemon loaded it). A genuine *version*
     mismatch after we have already reached a matching daemon means the binary
     was replaced under us mid-session — that fails fast instead of looping on
@@ -517,9 +520,9 @@ def start_daemon() -> subprocess.Popen[bytes]:
     daemon_runtime_dir().mkdir(parents=True, exist_ok=True)
     log_path = daemon_log_path()
 
-    ccc_path = _find_ccc_executable()
-    if ccc_path:
-        cmd = [ccc_path, "run-daemon"]
+    rag4trex_path = _find_rag4trex_executable()
+    if rag4trex_path:
+        cmd = [rag4trex_path, "run-daemon"]
     else:
         cmd = [sys.executable, "-m", "cocoindex_code.cli", "run-daemon"]
 
@@ -545,14 +548,14 @@ def start_daemon() -> subprocess.Popen[bytes]:
     return proc
 
 
-def _find_ccc_executable() -> str | None:
-    """Find the ccc executable in PATH or the same directory as python."""
+def _find_rag4trex_executable() -> str | None:
+    """Find the rag4trex executable in PATH or the same directory as python."""
     python_dir = Path(sys.executable).parent
-    names = ["ccc.exe", "ccc"] if sys.platform == "win32" else ["ccc"]
+    names = ["rag4trex.exe", "rag4trex"] if sys.platform == "win32" else ["rag4trex"]
     for name in names:
-        ccc = python_dir / name
-        if ccc.exists():
-            return str(ccc)
+        executable = python_dir / name
+        if executable.exists():
+            return str(executable)
     return None
 
 

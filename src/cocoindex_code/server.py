@@ -391,7 +391,7 @@ mcp: FastMCP | None = None
 
 
 def _convert_embedding_model(env_model: str) -> tuple[str, str]:
-    """Convert old COCOINDEX_CODE_EMBEDDING_MODEL to (provider, model)."""
+    """Convert legacy embedding model env values to (provider, model)."""
     sbert_prefix = "sbert/"
     if env_model.startswith(sbert_prefix):
         return "sentence-transformers", env_model[len(sbert_prefix) :]
@@ -433,7 +433,9 @@ def main() -> None:
 
     if project_root is None:
         # Try env var
-        env_root = os.environ.get("COCOINDEX_CODE_ROOT_PATH")
+        env_root = os.environ.get("RAG4TREX_ROOT_PATH") or os.environ.get(
+            "COCOINDEX_CODE_ROOT_PATH"
+        )
         if env_root:
             project_root = Path(env_root).resolve()
         else:
@@ -446,8 +448,12 @@ def main() -> None:
     if proj_settings_file is None:
         ps = default_project_settings()
 
-        # Migrate COCOINDEX_CODE_EXCLUDED_PATTERNS
-        raw_excluded = os.environ.get("COCOINDEX_CODE_EXCLUDED_PATTERNS", "").strip()
+        # Migrate env-provided excluded patterns
+        raw_excluded = (
+            os.environ.get("RAG4TREX_EXCLUDED_PATTERNS")
+            or os.environ.get("COCOINDEX_CODE_EXCLUDED_PATTERNS")
+            or ""
+        ).strip()
         if raw_excluded:
             try:
                 extra_excluded = json.loads(raw_excluded)
@@ -458,8 +464,10 @@ def main() -> None:
             except json.JSONDecodeError:
                 pass
 
-        # Migrate COCOINDEX_CODE_EXTRA_EXTENSIONS
-        raw_extra = os.environ.get("COCOINDEX_CODE_EXTRA_EXTENSIONS", "")
+        # Migrate env-provided extra extensions
+        raw_extra = os.environ.get("RAG4TREX_EXTRA_EXTENSIONS") or os.environ.get(
+            "COCOINDEX_CODE_EXTRA_EXTENSIONS", ""
+        )
         for token in raw_extra.split(","):
             token = token.strip()
             if not token:
@@ -481,14 +489,16 @@ def main() -> None:
     if not user_file.is_file():
         us = default_user_settings()
 
-        # Migrate COCOINDEX_CODE_EMBEDDING_MODEL
-        env_model = os.environ.get("COCOINDEX_CODE_EMBEDDING_MODEL", "")
+        # Migrate env-provided embedding model
+        env_model = os.environ.get("RAG4TREX_EMBEDDING_MODEL") or os.environ.get(
+            "COCOINDEX_CODE_EMBEDDING_MODEL", ""
+        )
         if env_model:
             provider, model = _convert_embedding_model(env_model)
             us.embedding = EmbeddingSettings(provider=provider, model=model)
 
-        # Migrate COCOINDEX_CODE_DEVICE
-        env_device = os.environ.get("COCOINDEX_CODE_DEVICE")
+        # Migrate env-provided device
+        env_device = os.environ.get("RAG4TREX_DEVICE") or os.environ.get("COCOINDEX_CODE_DEVICE")
         if env_device:
             us.embedding.device = env_device
 

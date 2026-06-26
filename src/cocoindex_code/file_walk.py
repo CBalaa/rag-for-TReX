@@ -1,9 +1,9 @@
 """Shared source-file walking: pattern + .gitignore matching, reused by the
-indexer, the daemon's doctor file-walk, and ``ccc grep``.
+indexer, the daemon's doctor file-walk, and ``rag4trex grep``.
 
 The matcher (include/exclude globs + nested ``.gitignore`` awareness) is the
 single source of truth for "which files count as part of the project". The
-indexer feeds it to CocoIndex's incremental file source; the daemon and ``ccc
+indexer feeds it to CocoIndex's incremental file source; the daemon and ``rag4trex
 grep`` drive a plain :func:`os.walk` over it via :func:`iter_included_files`.
 """
 

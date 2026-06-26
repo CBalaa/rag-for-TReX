@@ -82,7 +82,7 @@ def test_legacy_embedding_model_conversion() -> None:
 
 
 def test_legacy_extra_extensions_conversion(tmp_path: Path) -> None:
-    """COCOINDEX_CODE_EXTRA_EXTENSIONS should produce language_overrides and include_patterns."""
+    """RAG4TREX_EXTRA_EXTENSIONS should produce language_overrides and include_patterns."""
     ps = default_project_settings()
 
     # Simulate: "inc:php,yaml,toml"
@@ -106,14 +106,14 @@ def test_legacy_extra_extensions_conversion(tmp_path: Path) -> None:
 
 
 def test_legacy_root_discovery_requires_cocoindex_db(tmp_path: Path) -> None:
-    """A .cocoindex_code dir without cocoindex.db should not be matched."""
-    (tmp_path / ".cocoindex_code").mkdir()
+    """A .rag4trex dir without cocoindex.db should not be matched."""
+    (tmp_path / ".rag4trex").mkdir()
     assert find_legacy_project_root(tmp_path) is None
 
 
 def test_legacy_root_discovery_with_cocoindex_db(tmp_path: Path) -> None:
-    """A .cocoindex_code dir with cocoindex.db should be matched, including from a subdirectory."""
-    idx_dir = tmp_path / ".cocoindex_code"
+    """A .rag4trex dir with cocoindex.db should be matched, including from a subdirectory."""
+    idx_dir = tmp_path / ".rag4trex"
     idx_dir.mkdir()
     (idx_dir / "cocoindex.db").touch()
 
@@ -127,7 +127,7 @@ def test_legacy_root_discovery_with_cocoindex_db(tmp_path: Path) -> None:
 
 
 def test_legacy_excluded_patterns_conversion(tmp_path: Path) -> None:
-    """COCOINDEX_CODE_EXCLUDED_PATTERNS should be appended to default exclude_patterns."""
+    """RAG4TREX_EXCLUDED_PATTERNS should be appended to default exclude_patterns."""
 
     ps = default_project_settings()
     extra = ["**/migration.sql"]

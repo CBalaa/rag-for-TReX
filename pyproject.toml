@@ -60,7 +60,6 @@ dev = [
 
 [project.scripts]
 rag4trex = "cocoindex_code.cli:app"
-ccc = "cocoindex_code.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/CBalaa/rag-for-TReX"

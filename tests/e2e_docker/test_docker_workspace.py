@@ -46,48 +46,48 @@ def docker_exec(
 
 
 def test_index_and_search_happy_path(container: str, fixture_workspace: Path) -> None:
-    """Baseline flow: daemon comes up, `ccc init` writes settings and triggers
-    supervised respawn, `ccc index` succeeds, `ccc search` returns hits.
+    """Baseline flow: daemon comes up, `rag4trex init` writes settings and triggers
+    supervised respawn, `rag4trex index` succeeds, `rag4trex search` returns hits.
     """
     # Container starts with no global_settings.yml; daemon is in no-settings mode.
-    # `ccc init -f` writes defaults (no TTY → falls back to default st model).
+    # `rag4trex init -f` writes defaults (no TTY → falls back to default st model).
     docker_exec(
         container,
-        ["ccc", "init", "-f"],
-        env={"COCOINDEX_CODE_HOST_CWD": str(fixture_workspace)},
+        ["rag4trex", "init", "-f"],
+        env={"RAG4TREX_HOST_CWD": str(fixture_workspace)},
     )
 
     index_result = docker_exec(
         container,
-        ["ccc", "index"],
-        env={"COCOINDEX_CODE_HOST_CWD": str(fixture_workspace)},
+        ["rag4trex", "index"],
+        env={"RAG4TREX_HOST_CWD": str(fixture_workspace)},
     )
     assert index_result.returncode == 0, index_result.stderr
 
     search = docker_exec(
         container,
-        ["ccc", "search", "password", "verification"],
-        env={"COCOINDEX_CODE_HOST_CWD": str(fixture_workspace)},
+        ["rag4trex", "search", "password", "verification"],
+        env={"RAG4TREX_HOST_CWD": str(fixture_workspace)},
     )
     assert search.returncode == 0, search.stderr
     # Relative path — unchanged by host-path mapping, identical to what a
-    # host-side `ccc` would print.
+    # host-side `rag4trex` would print.
     assert "src/auth.py" in search.stdout
 
 
 def test_host_cwd_forwarding_resolves_project(container: str, fixture_workspace: Path) -> None:
-    """With COCOINDEX_CODE_HOST_CWD set, subproject-cwd commands find the right project."""
+    """With RAG4TREX_HOST_CWD set, subproject-cwd commands find the right project."""
     docker_exec(
         container,
-        ["ccc", "init", "-f"],
-        env={"COCOINDEX_CODE_HOST_CWD": str(fixture_workspace)},
+        ["rag4trex", "init", "-f"],
+        env={"RAG4TREX_HOST_CWD": str(fixture_workspace)},
     )
 
-    # Invoke `ccc status` from the host-form subdirectory path.
+    # Invoke `rag4trex status` from the host-form subdirectory path.
     status = docker_exec(
         container,
-        ["ccc", "status"],
-        env={"COCOINDEX_CODE_HOST_CWD": str(fixture_workspace / "src")},
+        ["rag4trex", "status"],
+        env={"RAG4TREX_HOST_CWD": str(fixture_workspace / "src")},
     )
     assert status.returncode == 0, status.stderr
     # Project header should show the HOST path (translated via the mapping),
@@ -99,11 +99,11 @@ def test_host_cwd_invalid_warns_but_continues(container: str) -> None:
     """An unresolvable host-cwd emits a stderr warning; the command still runs."""
     result = docker_exec(
         container,
-        ["ccc", "daemon", "status"],
-        env={"COCOINDEX_CODE_HOST_CWD": "/nonexistent/zzz"},
+        ["rag4trex", "daemon", "status"],
+        env={"RAG4TREX_HOST_CWD": "/nonexistent/zzz"},
         check=False,
     )
-    assert "COCOINDEX_CODE_HOST_CWD" in result.stderr
+    assert "RAG4TREX_HOST_CWD" in result.stderr
     assert result.returncode == 0
 
 
@@ -119,16 +119,16 @@ def test_settings_change_triggers_supervised_restart(
     # First pass — daemon in no-settings mode writes settings via init.
     docker_exec(
         container,
-        ["ccc", "init", "-f"],
-        env={"COCOINDEX_CODE_HOST_CWD": str(fixture_workspace)},
+        ["rag4trex", "init", "-f"],
+        env={"RAG4TREX_HOST_CWD": str(fixture_workspace)},
     )
     # Record the container's start-time so we can detect a respawn (pid reset).
-    initial_status = docker_exec(container, ["ccc", "daemon", "status"])
+    initial_status = docker_exec(container, ["rag4trex", "daemon", "status"])
     assert initial_status.returncode == 0
     assert "Uptime:" in initial_status.stdout
 
     # Edit global_settings.yml on the host side (bind mount → visible in container).
-    settings_file = fixture_workspace / ".cocoindex_code" / "global_settings.yml"
+    settings_file = fixture_workspace / ".rag4trex" / "global_settings.yml"
     assert settings_file.is_file()
     content = settings_file.read_text()
     # Touch mtime by rewriting identical content — still triggers mtime mismatch.
@@ -138,7 +138,7 @@ def test_settings_change_triggers_supervised_restart(
     # Next CLI call: the client should detect the mtime mismatch, request
     # daemon stop, and the entrypoint restart loop should bring a fresh
     # daemon back up. Container must still be running.
-    after = docker_exec(container, ["ccc", "daemon", "status"])
+    after = docker_exec(container, ["rag4trex", "daemon", "status"])
     assert after.returncode == 0, after.stderr
     assert "Uptime:" in after.stdout
 
@@ -185,7 +185,7 @@ def test_linux_puid_gives_host_owned_files(
     import os
     import uuid
 
-    name = f"ccc-e2e-puid-{uuid.uuid4().hex[:8]}"
+    name = f"rag4trex-e2e-puid-{uuid.uuid4().hex[:8]}"
     host_ws = str(fixture_workspace)
     # os.getuid/getgid only exist on POSIX; the skipif above already gates
     # this test to Linux, so getattr lets mypy pass on Windows runners.
@@ -205,7 +205,7 @@ def test_linux_puid_gives_host_owned_files(
                 "-v",
                 "/var/cocoindex",
                 "-e",
-                f"COCOINDEX_CODE_HOST_PATH_MAPPING=/workspace={host_ws}",
+                f"RAG4TREX_HOST_PATH_MAPPING=/workspace={host_ws}",
                 "-e",
                 f"PUID={uid}",
                 "-e",
@@ -215,10 +215,10 @@ def test_linux_puid_gives_host_owned_files(
             check=True,
             capture_output=True,
         )
-        # Wait for daemon startup (which creates /workspace/.cocoindex_code/global_settings.yml).
+        # Wait for daemon startup (which creates /workspace/.rag4trex/global_settings.yml).
         import time
 
-        settings_file = fixture_workspace / ".cocoindex_code" / "global_settings.yml"
+        settings_file = fixture_workspace / ".rag4trex" / "global_settings.yml"
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if settings_file.is_file():
@@ -242,7 +242,7 @@ def test_linux_no_puid_runs_as_root(container: str) -> None:
 
 
 def test_docker_compose_smoke(docker_image: str, fixture_workspace: Path, tmp_path: Path) -> None:
-    """`docker compose up -d` + `docker compose exec ccc search` round-trips."""
+    """`docker compose up -d` + `docker compose exec rag4trex search` round-trips."""
     import os
     import shutil
 
@@ -259,7 +259,7 @@ def test_docker_compose_smoke(docker_image: str, fixture_workspace: Path, tmp_pa
     )
 
     env = dict(os.environ)
-    env["COCOINDEX_HOST_WORKSPACE"] = str(fixture_workspace)
+    env["RAG4TREX_HOST_WORKSPACE"] = str(fixture_workspace)
 
     try:
         subprocess.run(
@@ -285,7 +285,7 @@ def test_docker_compose_smoke(docker_image: str, fixture_workspace: Path, tmp_pa
                     "rag4trex",
                     "sh",
                     "-c",
-                    "test -S /var/run/cocoindex_code/daemon.sock",
+                    "test -S /var/run/rag4trex/daemon.sock",
                 ],
                 cwd=tmp_path,
                 env=env,
@@ -308,9 +308,9 @@ def test_docker_compose_smoke(docker_image: str, fixture_workspace: Path, tmp_pa
                 "exec",
                 "-T",
                 "-e",
-                f"COCOINDEX_CODE_HOST_CWD={fixture_workspace}",
+                f"RAG4TREX_HOST_CWD={fixture_workspace}",
                 "rag4trex",
-                "ccc",
+                "rag4trex",
                 "init",
                 "-f",
             ],
@@ -328,9 +328,9 @@ def test_docker_compose_smoke(docker_image: str, fixture_workspace: Path, tmp_pa
                 "exec",
                 "-T",
                 "-e",
-                f"COCOINDEX_CODE_HOST_CWD={fixture_workspace}",
+                f"RAG4TREX_HOST_CWD={fixture_workspace}",
                 "rag4trex",
-                "ccc",
+                "rag4trex",
                 "index",
             ],
             cwd=tmp_path,
@@ -347,9 +347,9 @@ def test_docker_compose_smoke(docker_image: str, fixture_workspace: Path, tmp_pa
                 "exec",
                 "-T",
                 "-e",
-                f"COCOINDEX_CODE_HOST_CWD={fixture_workspace}",
+                f"RAG4TREX_HOST_CWD={fixture_workspace}",
                 "rag4trex",
-                "ccc",
+                "rag4trex",
                 "search",
                 "request",
                 "handler",

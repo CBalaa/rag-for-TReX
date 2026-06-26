@@ -31,8 +31,8 @@ runner = CliRunner()
 
 def test_require_project_root_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project = tmp_path / "project"
-    (project / ".cocoindex_code").mkdir(parents=True)
-    (project / ".cocoindex_code" / "settings.yml").write_text("include_patterns: []")
+    project.mkdir()
+    (project / ".rag4trex.yml").write_text("include_patterns: []")
     subdir = project / "src"
     subdir.mkdir()
     monkeypatch.chdir(subdir)
@@ -42,7 +42,7 @@ def test_require_project_root_success(tmp_path: Path, monkeypatch: pytest.Monkey
     (settings_dir / "global_settings.yml").write_text(
         "embedding:\n  model: test\n  provider: litellm\n"
     )
-    monkeypatch.setenv("COCOINDEX_CODE_DIR", str(settings_dir))
+    monkeypatch.setenv("RAG4TREX_DIR", str(settings_dir))
     assert require_project_root() == project
 
 
@@ -58,7 +58,7 @@ def test_require_project_root_exits_when_not_initialized(
     (settings_dir / "global_settings.yml").write_text(
         "embedding:\n  model: test\n  provider: litellm\n"
     )
-    monkeypatch.setenv("COCOINDEX_CODE_DIR", str(settings_dir))
+    monkeypatch.setenv("RAG4TREX_DIR", str(settings_dir))
     from click.exceptions import Exit
 
     with pytest.raises(Exit):
@@ -71,7 +71,7 @@ def test_ensure_mcp_project_root_creates_only_user_settings(
     project = tmp_path / "project"
     project.mkdir()
     settings_dir = tmp_path / "ccc_home"
-    monkeypatch.setenv("COCOINDEX_CODE_DIR", str(settings_dir))
+    monkeypatch.setenv("RAG4TREX_DIR", str(settings_dir))
     monkeypatch.chdir(project)
 
     assert ensure_mcp_project_root() == project
@@ -116,14 +116,14 @@ def test_docs_cli_commands_emit_json_and_pass_index_type(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = tmp_path / "project"
-    (project / ".cocoindex_code").mkdir(parents=True)
-    (project / ".cocoindex_code" / "settings.yml").write_text("include_patterns: []\n")
+    project.mkdir()
+    (project / ".rag4trex.yml").write_text("include_patterns: []\n")
     settings_dir = tmp_path / "ccc_home"
     settings_dir.mkdir()
     (settings_dir / "global_settings.yml").write_text(
         "embedding:\n  model: test\n  provider: litellm\n"
     )
-    monkeypatch.setenv("COCOINDEX_CODE_DIR", str(settings_dir))
+    monkeypatch.setenv("RAG4TREX_DIR", str(settings_dir))
     monkeypatch.chdir(project)
 
     calls: list[tuple[str, object]] = []
@@ -325,8 +325,8 @@ def test_add_to_gitignore_creates_file(tmp_path: Path) -> None:
     gitignore = tmp_path / ".gitignore"
     assert gitignore.is_file()
     content = gitignore.read_text()
-    assert "# CocoIndex Code (ccc)" in content
-    assert "/.cocoindex_code/" in content
+    assert "# rag4trex" in content
+    assert "/.rag4trex/" in content
 
 
 def test_add_to_gitignore_appends_to_existing(tmp_path: Path) -> None:
@@ -336,16 +336,16 @@ def test_add_to_gitignore_appends_to_existing(tmp_path: Path) -> None:
     add_to_gitignore(tmp_path)
     content = gitignore.read_text()
     assert "*.pyc" in content
-    assert "/.cocoindex_code/" in content
+    assert "/.rag4trex/" in content
 
 
 def test_add_to_gitignore_idempotent(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
     gitignore = tmp_path / ".gitignore"
-    gitignore.write_text("/.cocoindex_code/\n")
+    gitignore.write_text("/.rag4trex/\n")
     add_to_gitignore(tmp_path)
     content = gitignore.read_text()
-    assert content.count("/.cocoindex_code/") == 1
+    assert content.count("/.rag4trex/") == 1
 
 
 def test_add_to_gitignore_skips_when_no_git(tmp_path: Path) -> None:
@@ -355,11 +355,11 @@ def test_add_to_gitignore_skips_when_no_git(tmp_path: Path) -> None:
 
 def test_remove_from_gitignore(tmp_path: Path) -> None:
     gitignore = tmp_path / ".gitignore"
-    gitignore.write_text("*.pyc\n# CocoIndex Code (ccc)\n/.cocoindex_code/\n__pycache__/\n")
+    gitignore.write_text("*.pyc\n# rag4trex\n/.rag4trex/\n__pycache__/\n")
     remove_from_gitignore(tmp_path)
     content = gitignore.read_text()
-    assert "/.cocoindex_code/" not in content
-    assert "# CocoIndex Code (ccc)" not in content
+    assert "/.rag4trex/" not in content
+    assert "# rag4trex" not in content
     assert "*.pyc" in content
     assert "__pycache__/" in content
 
@@ -373,14 +373,14 @@ def test_remove_from_gitignore_no_entry(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# COCOINDEX_CODE_HOST_CWD callback
+# RAG4TREX_HOST_CWD callback
 # ---------------------------------------------------------------------------
 
 
 def test_apply_host_cwd_chdirs_to_mapped_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """When COCOINDEX_CODE_HOST_CWD is set and matches the mapping, chdir to container form."""
+    """When RAG4TREX_HOST_CWD is set and matches the mapping, chdir to container form."""
     from cocoindex_code.cli import _apply_host_cwd
     from cocoindex_code.settings import _reset_host_path_mapping_cache
 
@@ -390,8 +390,8 @@ def test_apply_host_cwd_chdirs_to_mapped_path(
     host.mkdir()
 
     _reset_host_path_mapping_cache()
-    monkeypatch.setenv("COCOINDEX_CODE_HOST_PATH_MAPPING", f"{container}={host}")
-    monkeypatch.setenv("COCOINDEX_CODE_HOST_CWD", str(host / "proj" / "src"))
+    monkeypatch.setenv("RAG4TREX_HOST_PATH_MAPPING", f"{container}={host}")
+    monkeypatch.setenv("RAG4TREX_HOST_CWD", str(host / "proj" / "src"))
 
     _apply_host_cwd()
 
@@ -405,17 +405,17 @@ def test_apply_host_cwd_chdirs_to_mapped_path(
 def test_apply_host_cwd_warns_on_invalid_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """An invalid COCOINDEX_CODE_HOST_CWD emits a warning but doesn't abort."""
+    """An invalid RAG4TREX_HOST_CWD emits a warning but doesn't abort."""
     from cocoindex_code.cli import _apply_host_cwd
 
     original_cwd = Path.cwd()
-    monkeypatch.setenv("COCOINDEX_CODE_HOST_CWD", "/nonexistent/path/xyz")
-    monkeypatch.delenv("COCOINDEX_CODE_HOST_PATH_MAPPING", raising=False)
+    monkeypatch.setenv("RAG4TREX_HOST_CWD", "/nonexistent/path/xyz")
+    monkeypatch.delenv("RAG4TREX_HOST_PATH_MAPPING", raising=False)
 
     _apply_host_cwd()
 
     captured = capsys.readouterr()
-    assert "COCOINDEX_CODE_HOST_CWD" in captured.err
+    assert "RAG4TREX_HOST_CWD" in captured.err
     assert "/nonexistent/path/xyz" in captured.err
     # cwd should be unchanged since chdir failed.
     assert Path.cwd() == original_cwd
@@ -424,11 +424,11 @@ def test_apply_host_cwd_warns_on_invalid_path(
 def test_apply_host_cwd_noop_when_unset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """With COCOINDEX_CODE_HOST_CWD unset, the callback is a silent no-op."""
+    """With RAG4TREX_HOST_CWD unset, the callback is a silent no-op."""
     from cocoindex_code.cli import _apply_host_cwd
 
     original_cwd = Path.cwd()
-    monkeypatch.delenv("COCOINDEX_CODE_HOST_CWD", raising=False)
+    monkeypatch.delenv("RAG4TREX_HOST_CWD", raising=False)
 
     _apply_host_cwd()
 
@@ -437,7 +437,7 @@ def test_apply_host_cwd_noop_when_unset(
 
 
 # ---------------------------------------------------------------------------
-# ccc init — auto-populate indexing_params / query_params from curated table
+# rag4trex init — auto-populate indexing_params / query_params from curated table
 # ---------------------------------------------------------------------------
 
 
@@ -446,13 +446,13 @@ def test_init_auto_populates_known_model(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """For a known model, `ccc init` writes real indexing/query params into the
+    """For a known model, `rag4trex init` writes real indexing/query params into the
     file and prints an 'Applied recommended defaults' message.
     """
     from cocoindex_code.settings import EmbeddingSettings, load_user_settings
 
-    user_dir = tmp_path / ".cocoindex_code"
-    monkeypatch.setenv("COCOINDEX_CODE_DIR", str(user_dir))
+    user_dir = tmp_path / ".rag4trex"
+    monkeypatch.setenv("RAG4TREX_DIR", str(user_dir))
 
     monkeypatch.setattr(
         cli,
@@ -477,7 +477,7 @@ def test_init_writes_comment_template_for_unknown_model(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """For a model outside the curated table, `ccc init` writes a commented-out
+    """For a model outside the curated table, `rag4trex init` writes a commented-out
     template block under ``embedding:`` instead of real keys.
     """
     from cocoindex_code.settings import (
@@ -486,8 +486,8 @@ def test_init_writes_comment_template_for_unknown_model(
         user_settings_path,
     )
 
-    user_dir = tmp_path / ".cocoindex_code"
-    monkeypatch.setenv("COCOINDEX_CODE_DIR", str(user_dir))
+    user_dir = tmp_path / ".rag4trex"
+    monkeypatch.setenv("RAG4TREX_DIR", str(user_dir))
 
     monkeypatch.setattr(
         cli,
@@ -517,8 +517,8 @@ def test_init_failed_check_prints_next_steps_and_keeps_settings(
     """
     from cocoindex_code.settings import EmbeddingSettings, user_settings_path
 
-    user_dir = tmp_path / ".cocoindex_code"
-    monkeypatch.setenv("COCOINDEX_CODE_DIR", str(user_dir))
+    user_dir = tmp_path / ".rag4trex"
+    monkeypatch.setenv("RAG4TREX_DIR", str(user_dir))
 
     monkeypatch.setattr(
         cli,
@@ -533,7 +533,7 @@ def test_init_failed_check_prints_next_steps_and_keeps_settings(
 
     err = capsys.readouterr().err
     assert "Next steps" in err
-    assert "ccc doctor" in err
+    assert "rag4trex doctor" in err
     # Settings are kept on disk so the user can edit them.
     assert user_settings_path().is_file()
 

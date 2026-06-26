@@ -26,7 +26,7 @@ def docker_image() -> str:
     """Build the image once per test session, installing rag4trex from the
     local source tree (not PyPI) so tests exercise the current changes. Returns the tag.
     """
-    # Tests exercise the `full` variant so `ccc init -f` in non-TTY mode can
+    # Tests exercise the `full` variant so `rag4trex init -f` in non-TTY mode can
     # fall back to sentence-transformers (the slim variant requires
     # `--litellm-model`, which would add setup boilerplate to every test).
     tag = "rag4trex:pytest"
@@ -37,9 +37,9 @@ def docker_image() -> str:
             "-f",
             str(DOCKERFILE),
             "--build-arg",
-            "CCC_VARIANT=full",
+            "RAG4TREX_VARIANT=full",
             "--build-arg",
-            "CCC_INSTALL_SPEC=/ccc-src[full]",
+            "RAG4TREX_INSTALL_SPEC=/rag4trex-src[full]",
             "-t",
             tag,
             str(REPO_ROOT),
@@ -72,7 +72,7 @@ def container(
     DB / model cache (the image's copy-up populates the cache from the
     baked-in path).
     """
-    name = f"ccc-e2e-{uuid.uuid4().hex[:12]}"
+    name = f"rag4trex-e2e-{uuid.uuid4().hex[:12]}"
     host_ws = str(fixture_workspace)
     try:
         subprocess.run(
@@ -88,7 +88,7 @@ def container(
                 "-v",
                 "/var/cocoindex",  # anonymous volume per-test
                 "-e",
-                f"COCOINDEX_CODE_HOST_PATH_MAPPING=/workspace={host_ws}",
+                f"RAG4TREX_HOST_PATH_MAPPING=/workspace={host_ws}",
                 docker_image,
             ],
             check=True,
@@ -111,7 +111,7 @@ def _wait_for_daemon_ready(container_name: str, timeout: float) -> None:
                 container_name,
                 "sh",
                 "-c",
-                "test -S /var/run/cocoindex_code/daemon.sock",
+                "test -S /var/run/rag4trex/daemon.sock",
             ],
             capture_output=True,
             check=False,

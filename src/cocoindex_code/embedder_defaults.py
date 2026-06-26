@@ -1,6 +1,6 @@
 """Curated default embedder params for known models.
 
-Consulted only by ``ccc init`` — the table is NOT read at daemon runtime.
+Consulted only by ``rag4trex init`` — the table is NOT read at daemon runtime.
 The runtime path reads the user's YAML verbatim; the legacy-bridge in
 ``embedder_params.resolve_embedder_params`` is the only runtime-level fallback
 and is scoped to :data:`LEGACY_QUERY_PROMPT_MODELS`.
@@ -127,7 +127,7 @@ def lookup_defaults(
 def _assert_legacy_bridge_invariant() -> None:
     """Each legacy model must have an exact sentence-transformers entry with
     ``query_params == {"prompt_name": "query"}``.  Guarantees users who run
-    ``ccc init`` against a legacy model get the same effective behavior the
+    ``rag4trex init`` against a legacy model get the same effective behavior the
     runtime legacy-bridge produces.
     """
     for legacy in LEGACY_QUERY_PROMPT_MODELS:

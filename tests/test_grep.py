@@ -1,4 +1,4 @@
-"""Tests for `ccc grep` — structural code search.
+"""Tests for `rag4trex grep` — structural code search.
 
 These run entirely locally (no daemon, no index, no embeddings): the engine
 compiles a code_match pattern per language and matches files on disk.
@@ -316,8 +316,7 @@ def test_cli_grep_lang_filter(codebase: Path) -> None:
 
 def test_grep_respects_project_exclude_patterns(tmp_path: Path) -> None:
     """Inside an initialized project, grep honors the configured exclude patterns."""
-    (tmp_path / ".cocoindex_code").mkdir()
-    (tmp_path / ".cocoindex_code" / "settings.yml").write_text(
+    (tmp_path / ".rag4trex.yml").write_text(
         "include_patterns:\n  - '**/*.py'\nexclude_patterns:\n  - '**/.*'\n  - '**/skip'\n"
     )
     (tmp_path / "keep.py").write_text("def kept(a):\n    return a\n")
@@ -332,8 +331,7 @@ def test_grep_respects_project_exclude_patterns(tmp_path: Path) -> None:
 
 
 def test_grep_respects_gitignore(tmp_path: Path) -> None:
-    (tmp_path / ".cocoindex_code").mkdir()
-    (tmp_path / ".cocoindex_code" / "settings.yml").write_text("include_patterns:\n  - '**/*.py'\n")
+    (tmp_path / ".rag4trex.yml").write_text("include_patterns:\n  - '**/*.py'\n")
     (tmp_path / ".gitignore").write_text("ignored.py\n")
     (tmp_path / "kept.py").write_text("def kept(a):\n    return a\n")
     (tmp_path / "ignored.py").write_text("def ignored(a):\n    return a\n")
@@ -410,8 +408,7 @@ def test_grep_anchors_gitignore_at_git_root_when_no_project(tmp_path: Path) -> N
 
 def test_grep_language_override(tmp_path: Path) -> None:
     """A project language override maps an unusual extension to a matchable language."""
-    (tmp_path / ".cocoindex_code").mkdir()
-    (tmp_path / ".cocoindex_code" / "settings.yml").write_text(
+    (tmp_path / ".rag4trex.yml").write_text(
         "include_patterns:\n  - '**/*.inc'\nlanguage_overrides:\n  - ext: inc\n    lang: python\n"
     )
     (tmp_path / "snippet.inc").write_text("def included(a):\n    return a\n")

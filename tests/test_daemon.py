@@ -61,11 +61,11 @@ def daemon_sock() -> Iterator[str]:
     user_dir = Path(tempfile.mkdtemp(prefix="ccc_d_"))
     user_dir.mkdir(parents=True, exist_ok=True)
 
-    # Use COCOINDEX_CODE_DIR env var for isolation instead of direct module patching.
+    # Use RAG4TREX_DIR env var for isolation instead of direct module patching.
     # Direct patching of dm.user_settings_dir leaks across test modules and causes
     # stop_daemon() in other fixtures to read the wrong PID file (pytest's own PID).
-    old_env = os.environ.get("COCOINDEX_CODE_DIR")
-    os.environ["COCOINDEX_CODE_DIR"] = str(user_dir)
+    old_env = os.environ.get("RAG4TREX_DIR")
+    os.environ["RAG4TREX_DIR"] = str(user_dir)
 
     save_user_settings(make_test_user_settings())
 
@@ -97,9 +97,9 @@ def daemon_sock() -> Iterator[str]:
     thread.join(timeout=5)
 
     if old_env is None:
-        os.environ.pop("COCOINDEX_CODE_DIR", None)
+        os.environ.pop("RAG4TREX_DIR", None)
     else:
-        os.environ["COCOINDEX_CODE_DIR"] = old_env
+        os.environ["RAG4TREX_DIR"] = old_env
 
 
 def _recv_index_response(conn: Connection) -> tuple[list[IndexProgressUpdate], IndexResponse]:

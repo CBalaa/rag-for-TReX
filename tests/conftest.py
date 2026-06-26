@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 # === Environment setup BEFORE any cocoindex_code imports ===
 _TEST_DIR = Path(tempfile.mkdtemp(prefix="cocoindex_test_"))
-os.environ["COCOINDEX_CODE_ROOT_PATH"] = str(_TEST_DIR)
+os.environ["RAG4TREX_ROOT_PATH"] = str(_TEST_DIR)
 
 
 # Lighter than the production default (Snowflake/snowflake-arctic-embed-xs)

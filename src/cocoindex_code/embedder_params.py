@@ -1,7 +1,7 @@
 """Validation and resolution of embedder ``indexing_params`` / ``query_params``.
 
 Runtime entry point is :func:`resolve_embedder_params`.  The curated defaults
-table lives in :mod:`embedder_defaults` and is used only by ``ccc init`` —
+table lives in :mod:`embedder_defaults` and is used only by ``rag4trex init`` —
 this module does not consult it.
 """
 

@@ -1,4 +1,4 @@
-"""Data models for CocoIndex Code."""
+"""Data models for rag4trex."""
 
 from dataclasses import dataclass
 from typing import Any

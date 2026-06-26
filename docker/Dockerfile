@@ -11,12 +11,12 @@
 #   4. (full only) pre-bake the default embedding model under
 #      /var/cocoindex/cache/... so the named volume's copy-up populates it
 #      on first start without a network fetch.
-#   5. writable-path setup (mkdir /var/cocoindex/db + /var/run/cocoindex_code,
+#   5. writable-path setup (mkdir /var/cocoindex/db + /var/run/rag4trex,
 #      chown to coco) + env vars + entrypoint copy.
 #
 # Per-release layers (invalidate when the source tree changes):
-#   6. COPY . /ccc-src — build context (~MB).
-#   7. `uv pip install "cocoindex>=..." "${CCC_INSTALL_SPEC}"` — installs
+#   6. COPY . /rag4trex-src — build context (~MB).
+#   7. `uv pip install "cocoindex>=..." "${RAG4TREX_INSTALL_SPEC}"` — installs
 #      cocoindex + rag4trex + any of their deps not already in place
 #      from layer 3. Per-release layer size is bounded by what cocoindex +
 #      rag4trex + their non-ST deps actually occupy (~tens of MB).
@@ -46,8 +46,8 @@ RUN pip install --quiet uv
 # Heavy, stable deps for full variant. Layer digest is reproducible across
 # releases (RUN command string is constant), so users skip re-downloading
 # this layer on upgrade.
-ARG CCC_VARIANT=slim
-RUN if [ "$CCC_VARIANT" = "full" ]; then \
+ARG RAG4TREX_VARIANT=slim
+RUN if [ "$RAG4TREX_VARIANT" = "full" ]; then \
         uv pip install --system sentence-transformers; \
     fi
 
@@ -57,7 +57,7 @@ ENV HF_HOME=/var/cocoindex/cache/huggingface \
 # Pre-bake the default embedding model (full only). For slim, just create
 # empty cache dirs so the cocoindex-data named volume mounts cleanly.
 RUN mkdir -p /var/cocoindex/cache/huggingface /var/cocoindex/cache/sentence-transformers \
-    && if [ "$CCC_VARIANT" = "full" ]; then \
+    && if [ "$RAG4TREX_VARIANT" = "full" ]; then \
         python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('Snowflake/snowflake-arctic-embed-xs'); print('Model cached.')"; \
     fi
 
@@ -65,17 +65,17 @@ RUN mkdir -p /var/cocoindex/cache/huggingface /var/cocoindex/cache/sentence-tran
 # entrypoint re-chowns to the host user; under root (Docker Desktop
 # default) coco-ownership is harmless since processes run as root and can
 # write anywhere.
-RUN mkdir -p /var/cocoindex/db /var/run/cocoindex_code \
-    && chown -R coco:coco /var/cocoindex /var/run/cocoindex_code
+RUN mkdir -p /var/cocoindex/db /var/run/rag4trex \
+    && chown -R coco:coco /var/cocoindex /var/run/rag4trex
 
 WORKDIR /workspace
 
 # Runtime defaults — see the spec for what each does. All overridable at
 # `docker run -e ...` time.
-ENV COCOINDEX_CODE_DIR=/workspace/.cocoindex_code \
-    COCOINDEX_CODE_RUNTIME_DIR=/var/run/cocoindex_code \
-    COCOINDEX_CODE_DB_PATH_MAPPING=/workspace=/var/cocoindex/db \
-    COCOINDEX_CODE_DAEMON_SUPERVISED=1
+ENV RAG4TREX_DIR=/workspace/.rag4trex \
+    RAG4TREX_RUNTIME_DIR=/var/run/rag4trex \
+    RAG4TREX_DB_PATH_MAPPING=/workspace=/var/cocoindex/db \
+    RAG4TREX_DAEMON_SUPERVISED=1
 
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
@@ -84,21 +84,21 @@ ENTRYPOINT ["/entrypoint.sh"]
 # ─── Per-release layer (last so only this one invalidates per release) ─────
 #
 # Default (PyPI flow): install rag4trex from PyPI, picking the extras
-# that match CCC_VARIANT.
+# that match RAG4TREX_VARIANT.
 # Release workflow / local tests override with (respectively):
-#   --build-arg CCC_INSTALL_SPEC=/ccc-src
-#   --build-arg CCC_INSTALL_SPEC=/ccc-src[full]
+#   --build-arg RAG4TREX_INSTALL_SPEC=/rag4trex-src
+#   --build-arg RAG4TREX_INSTALL_SPEC=/rag4trex-src[full]
 # to install from the source tree. `rw=true` on the bind mount gives
 # hatch-vcs a writable overlay for `_version.py` during the PEP 517 build;
 # the overlay is discarded after the RUN, so the source tree doesn't
 # persist as a layer in the final image.
-ARG CCC_INSTALL_SPEC=""
-RUN --mount=type=bind,source=.,target=/ccc-src,rw=true \
-    if [ -z "$CCC_INSTALL_SPEC" ]; then \
-        if [ "$CCC_VARIANT" = "full" ]; then \
-            CCC_INSTALL_SPEC="rag4trex[full]"; \
+ARG RAG4TREX_INSTALL_SPEC=""
+RUN --mount=type=bind,source=.,target=/rag4trex-src,rw=true \
+    if [ -z "$RAG4TREX_INSTALL_SPEC" ]; then \
+        if [ "$RAG4TREX_VARIANT" = "full" ]; then \
+            RAG4TREX_INSTALL_SPEC="rag4trex[full]"; \
         else \
-            CCC_INSTALL_SPEC="rag4trex"; \
+            RAG4TREX_INSTALL_SPEC="rag4trex"; \
         fi; \
     fi; \
-    uv pip install --system "${CCC_INSTALL_SPEC}"
+    uv pip install --system "${RAG4TREX_INSTALL_SPEC}"

@@ -46,7 +46,7 @@ uv tool install --upgrade 'rag4trex[full]'
 ```
 
 Two install styles — they mirror the Docker image variants of the same names:
-- `rag4trex[full]` — batteries-included. Pulls in `sentence-transformers` so local embeddings (no API key required) work out of the box. The `ccc init` interactive prompt defaults to [Snowflake/snowflake-arctic-embed-xs](https://huggingface.co/Snowflake/snowflake-arctic-embed-xs).
+- `rag4trex[full]` — batteries-included. Pulls in `sentence-transformers` so local embeddings (no API key required) work out of the box. The `rag4trex init` interactive prompt defaults to [Snowflake/snowflake-arctic-embed-xs](https://huggingface.co/Snowflake/snowflake-arctic-embed-xs).
 - `rag4trex` (slim) — LiteLLM-only; requires a cloud embedding provider and API key. Use when you don't want the local-embedding deps (~1 GB of torch + transformers).
 
 Next, set up your [coding agent integration](#coding-agent-integration) — or jump to [Manual CLI Usage](#manual-cli-usage) if you prefer direct control.
@@ -103,7 +103,7 @@ For [Grok](https://github.com/xai-org/grok) users, install via Grok's plugin sys
 | Component | Purpose |
 |-----------|---------|
 | **Skill** (`skills/rag4trex/`) | Agent uses the provided MCP tools for RAG discovery and location |
-| **Hook** (`hooks/hooks.json`) | `SessionStart` → incremental `ccc index` when `.cocoindex_code/` exists |
+| **Hook** (`hooks/hooks.json`) | `SessionStart` → incremental `rag4trex index` when `.rag4trex/` exists |
 | **MCP** (`.mcp.json`) | `rag4trex mcp` stdio server — `search` tool with `refresh_index=true` by default |
 
 Grok does **not** import Claude's `enabledPlugins` or plugin cache; install separately even if you already use cocoindex in Claude Code.
@@ -146,7 +146,7 @@ mcps = false
 
 ### MCP Server
 
-Alternatively, use `ccc mcp` to run as an MCP server:
+Alternatively, use `rag4trex mcp` to run as an MCP server:
 
 <details>
 <summary>Claude Code</summary>
@@ -214,14 +214,14 @@ Once configured, the agent automatically decides when semantic code search is he
 
 ### Docs RAG
 
-`ccc` can maintain a separate Markdown documentation index alongside the existing code index. Docs indexing handles `.md`, `.mdx`, and `.markdown` files with Markdown-aware chunks that preserve headings, heading paths, line ranges, char ranges, frontmatter, and content/chunk hashes.
+`rag4trex` can maintain a separate Markdown documentation index alongside the existing code index. Docs indexing handles `.md`, `.mdx`, and `.markdown` files with Markdown-aware chunks that preserve headings, heading paths, line ranges, char ranges, frontmatter, and content/chunk hashes.
 
 ```bash
-ccc index --type docs
-ccc index --type all
-ccc search-docs "how to configure auth" --json
-ccc search-repo "login failure flow" --json
-ccc locate "where is AUTH_TOKEN documented" --type docs --json
+rag4trex index --type docs
+rag4trex index --type all
+rag4trex search-docs "how to configure auth" --json
+rag4trex search-repo "login failure flow" --json
+rag4trex locate "where is AUTH_TOKEN documented" --type docs --json
 ```
 
 Docs and code are stored separately: code chunks use `code_chunks_vec`; documentation chunks use `docs_chunks_vec` with `content_type=documentation`. `search-docs` searches only documentation. `search-repo` and `locate` return a unified JSON shape across code and docs.
@@ -269,7 +269,7 @@ search:
 
 File walking honors `.gitignore`, `.ragignore`, configured excludes, and forced safety excludes such as `.git/`, `node_modules/`, `dist/`, `build/`, virtualenvs, `__pycache__/`, `.env`, key files, secrets directories, common database files, binary archives, images, and PDFs. Forced safety excludes cannot be overridden by normal include rules.
 
-Use `ccc scan --dry-run --type docs` to inspect matched files, and `ccc files --explain docs/auth.md --type docs --json` to explain why a file is indexed or skipped.
+Use `rag4trex scan --dry-run --type docs` to inspect matched files, and `rag4trex files --explain docs/auth.md --type docs --json` to explain why a file is indexed or skipped.
 
 MCP exposes `search_docs`, `search_code`, `search_repo`, `locate_repo`, and `get_index_status`. RAG tools only discover and locate relevant chunks; they do not provide the final source-file read path and never modify files.
 
@@ -297,7 +297,7 @@ Use the tools by role:
 <details>
 <summary>MCP Tool Reference</summary>
 
-When running as an MCP server (`ccc mcp`), these tools are exposed:
+When running as an MCP server (`rag4trex mcp`), these tools are exposed:
 
 **`search`** — Search the codebase using semantic similarity.
 
@@ -332,62 +332,62 @@ Returns matching code chunks with file path, language, code content, line number
 You can also use the CLI directly — useful for manual control, running indexing after changing settings, checking status, or searching outside an agent.
 
 ```bash
-ccc init                                # initialize project (creates settings)
-ccc index                               # build the index
-ccc search "authentication logic"       # search!
+rag4trex init                                # initialize project (creates settings)
+rag4trex index                               # build the index
+rag4trex search "authentication logic"       # search!
 ```
 
 The background daemon starts automatically on first use.
 
-> **Tip:** `ccc index` auto-initializes if you haven't run `ccc init` yet, so you can skip straight to indexing.
+> **Tip:** `rag4trex index` auto-initializes if you haven't run `rag4trex init` yet, so you can skip straight to indexing.
 
 ### CLI Reference
 
 | Command | Description |
 |---------|-------------|
-| `ccc init` | Initialize a project — creates settings files, adds `.cocoindex_code/` to `.gitignore` |
-| `ccc index` | Build or update the index (auto-inits if needed). Shows streaming progress. |
-| `ccc search <query>` | Semantic search across the codebase |
-| `ccc grep <pattern> [path]` | Structural code search by example (no index needed) |
-| `ccc status` | Show index stats (chunk count, file count, language breakdown) |
-| `ccc mcp` | Run as MCP server in stdio mode |
-| `ccc doctor` | Run diagnostics — checks settings, daemon, model, file matching, and index health |
-| `ccc reset` | Delete index databases. `--all` also removes settings. `-f` skips confirmation. |
-| `ccc daemon status` | Show daemon version, uptime, and loaded projects |
-| `ccc daemon restart` | Restart the background daemon |
-| `ccc daemon stop` | Stop the daemon |
+| `rag4trex init` | Initialize a project — creates settings files, adds `.rag4trex/` to `.gitignore` |
+| `rag4trex index` | Build or update the index (auto-inits if needed). Shows streaming progress. |
+| `rag4trex search <query>` | Semantic search across the codebase |
+| `rag4trex grep <pattern> [path]` | Structural code search by example (no index needed) |
+| `rag4trex status` | Show index stats (chunk count, file count, language breakdown) |
+| `rag4trex mcp` | Run as MCP server in stdio mode |
+| `rag4trex doctor` | Run diagnostics — checks settings, daemon, model, file matching, and index health |
+| `rag4trex reset` | Delete index databases. `--all` also removes settings. `-f` skips confirmation. |
+| `rag4trex daemon status` | Show daemon version, uptime, and loaded projects |
+| `rag4trex daemon restart` | Restart the background daemon |
+| `rag4trex daemon stop` | Stop the daemon |
 
 ### Search Options
 
 ```bash
-ccc search database schema                           # basic search
-ccc search --lang python --lang markdown schema      # filter by language
-ccc search --path 'src/utils/*' query handler        # filter by path
-ccc search --offset 10 --limit 5 database schema     # pagination
-ccc search --refresh database schema                 # update index first, then search
+rag4trex search database schema                           # basic search
+rag4trex search --lang python --lang markdown schema      # filter by language
+rag4trex search --path 'src/utils/*' query handler        # filter by path
+rag4trex search --offset 10 --limit 5 database schema     # pagination
+rag4trex search --refresh database schema                 # update index first, then search
 ```
 
-By default, `ccc search` scopes results to your current working directory (relative to the project root). Use `--path` to override.
+By default, `rag4trex search` scopes results to your current working directory (relative to the project root). Use `--path` to override.
 
-### Structural Search (`ccc grep`)
+### Structural Search (`rag4trex grep`)
 
-`ccc grep` finds code by **structure**, not text — you write a by-example pattern
+`rag4trex grep` finds code by **structure**, not text — you write a by-example pattern
 and it matches the syntax tree (via cocoindex's `code_match`), so formatting,
 whitespace, and intervening tokens don't matter. It runs entirely locally: no
 index, daemon, or embeddings required.
 
 ```bash
-ccc grep 'def \NAME(\(ARGS*\)):'                      # every Python function def under the cwd
-ccc grep 'foo(\(ARGS*\))' src/                        # calls to foo(...) anywhere under src/
-ccc grep 'fn \NAME(\(A*\))' --lang rust               # restrict to one language
-ccc grep 'class \NAME:' --path 'tests/**'            # restrict to a path glob
-ccc grep 'TODO(\(A*\))' path/to/file.py               # a single file
+rag4trex grep 'def \NAME(\(ARGS*\)):'                      # every Python function def under the cwd
+rag4trex grep 'foo(\(ARGS*\))' src/                        # calls to foo(...) anywhere under src/
+rag4trex grep 'fn \NAME(\(A*\))' --lang rust               # restrict to one language
+rag4trex grep 'class \NAME:' --path 'tests/**'            # restrict to a path glob
+rag4trex grep 'TODO(\(A*\))' path/to/file.py               # a single file
 ```
 
 Metavariables use the `\` sigil: `\NAME` captures one node, `\(NAME*\)` a run of
 siblings, `\_`/`\*` match anonymously. The pattern is matched per language, so a
 single invocation scans every supported source file (others are skipped). Inside
-an initialized project, `ccc grep` honors the project's include/exclude patterns
+an initialized project, `rag4trex grep` honors the project's include/exclude patterns
 and `.gitignore`; otherwise it scans all supported source files under the path.
 
 Results stream to the terminal file-by-file as each match is found (in completion
@@ -396,7 +396,7 @@ Each matching file shows its matched line range; under a TTY the path is colored
 line numbers are dimmed, and the unmatched context around a match is dimmed so the
 match stands out.
 
-> **Note:** `ccc grep` relies on cocoindex's structural `code_match` feature.
+> **Note:** `rag4trex grep` relies on cocoindex's structural `code_match` feature.
 > Until it ships in a released cocoindex, run against a local cocoindex build.
 
 ## Docker
@@ -442,16 +442,16 @@ PUID=$(id -u) PGID=$(id -g) docker compose -f <(curl -L https://raw.githubuserco
 Or grab [`docker/docker-compose.yml`](./docker/docker-compose.yml) and run `docker compose up -d` next to it (works on any shell, including Windows cmd / PowerShell).
 
 By default your home directory is mounted into the container (set
-`COCOINDEX_HOST_WORKSPACE` to narrow this to a specific code folder). Index
+`RAG4TREX_HOST_WORKSPACE` to narrow this to a specific code folder). Index
 data and the embedding model cache persist in a Docker volume across
-restarts. Your global settings file at `$HOME/.cocoindex_code/global_settings.yml`
-is visible and editable on the host; edits take effect on your next `ccc` command.
+restarts. Your global settings file at `$HOME/.rag4trex/global_settings.yml`
+is visible and editable on the host; edits take effect on your next `rag4trex` command.
 
-> **Pick a different image:** set `COCOINDEX_CODE_IMAGE` to override the
+> **Pick a different image:** set `RAG4TREX_IMAGE` to override the
 > default. For example, the `:full` variant or GHCR:
 > ```bash
-> COCOINDEX_CODE_IMAGE=rag4trex/rag4trex:full docker compose up -d
-> COCOINDEX_CODE_IMAGE=ghcr.io/cbalaa/rag4trex:latest docker compose up -d
+> RAG4TREX_IMAGE=rag4trex/rag4trex:full docker compose up -d
+> RAG4TREX_IMAGE=ghcr.io/cbalaa/rag4trex:latest docker compose up -d
 > ```
 
 ### Or: `docker run`
@@ -463,7 +463,7 @@ is visible and editable on the host; edits take effect on your next `ccc` comman
 docker run -d --name rag4trex \
   --volume "$HOME:/workspace" \
   --volume cocoindex-data:/var/cocoindex \
-  -e COCOINDEX_CODE_HOST_PATH_MAPPING="/workspace=$HOME" \
+  -e RAG4TREX_HOST_PATH_MAPPING="/workspace=$HOME" \
   rag4trex/rag4trex:latest
 ```
 </details>
@@ -476,24 +476,24 @@ docker run -d --name rag4trex \
   -e PUID=$(id -u) -e PGID=$(id -g) \
   --volume "$HOME:/workspace" \
   --volume cocoindex-data:/var/cocoindex \
-  -e COCOINDEX_CODE_HOST_PATH_MAPPING="/workspace=$HOME" \
+  -e RAG4TREX_HOST_PATH_MAPPING="/workspace=$HOME" \
   rag4trex/rag4trex:latest
 ```
 </details>
 
-### Shell wrapper for `ccc` commands
+### Shell wrapper for `rag4trex` commands
 
-Paste this into `~/.bashrc` / `~/.zshrc` so `ccc` feels native on the host
+Paste this into `~/.bashrc` / `~/.zshrc` so `rag4trex` feels native on the host
 and picks up the right project based on your current directory:
 
 ```bash
-ccc() {
-  docker exec -it -e COCOINDEX_CODE_HOST_CWD="$PWD" rag4trex ccc "$@"
+rag4trex() {
+  docker exec -it -e RAG4TREX_HOST_CWD="$PWD" rag4trex rag4trex "$@"
 }
 ```
 
-Now `cd` into any project under your workspace and run `ccc init`, `ccc index`,
-`ccc search ...`, `ccc status`, etc. — it just works.
+Now `cd` into any project under your workspace and run `rag4trex init`, `rag4trex index`,
+`rag4trex search ...`, `rag4trex status`, etc. — it just works.
 
 ### Connect your coding agent
 
@@ -504,7 +504,7 @@ Register MCP from inside the target project so `$PWD` points there:
 
 ```bash
 claude mcp add rag4trex -- docker exec -i \
-  -e COCOINDEX_CODE_HOST_CWD="$PWD" rag4trex rag4trex mcp
+  -e RAG4TREX_HOST_CWD="$PWD" rag4trex rag4trex mcp
 ```
 
 Or via `.mcp.json`:
@@ -519,7 +519,7 @@ Or via `.mcp.json`:
         "exec",
         "-i",
         "-e",
-        "COCOINDEX_CODE_HOST_CWD=${PWD}",
+        "RAG4TREX_HOST_CWD=${PWD}",
         "rag4trex",
         "rag4trex",
         "mcp"
@@ -531,7 +531,7 @@ Or via `.mcp.json`:
 
 > Note: use `-i` (not `-it`). The `-t` flag allocates a terminal, which
 > interferes with MCP's JSON messaging over stdin/stdout — only add it for
-> interactive `ccc` commands like `ccc init`.
+> interactive `rag4trex` commands like `rag4trex init`.
 </details>
 
 <details>
@@ -539,7 +539,7 @@ Or via `.mcp.json`:
 
 ```bash
 codex mcp add rag4trex -- docker exec -i \
-  -e COCOINDEX_CODE_HOST_CWD="$PWD" rag4trex rag4trex mcp
+  -e RAG4TREX_HOST_CWD="$PWD" rag4trex rag4trex mcp
 ```
 </details>
 
@@ -548,7 +548,7 @@ codex mcp add rag4trex -- docker exec -i \
 Earlier images used separate `cocoindex-db` and `cocoindex-model-cache`
 volumes; the current image consolidates them into a single `cocoindex-data`
 volume. Before pulling the new image, drop the old container and volumes —
-indexes rebuild on your next `ccc index`, and the embedding model is
+indexes rebuild on your next `rag4trex index`, and the embedding model is
 re-populated automatically on first start:
 
 ```bash
@@ -562,10 +562,10 @@ Pass configuration to `docker run` / compose with `-e`:
 
 ```bash
 # Extra extensions (e.g. Typesafe Config, SBT build files)
--e COCOINDEX_CODE_EXTRA_EXTENSIONS="conf,sbt"
+-e RAG4TREX_EXTRA_EXTENSIONS="conf,sbt"
 
 # Exclude build artefacts (Scala/SBT example)
--e COCOINDEX_CODE_EXCLUDE_PATTERNS='["**/target/**","**/.bloop/**","**/.metals/**"]'
+-e RAG4TREX_EXCLUDED_PATTERNS='["**/target/**","**/.bloop/**","**/.metals/**"]'
 
 # Set an API key
 -e VOYAGE_API_KEY=your-key
@@ -573,7 +573,7 @@ Pass configuration to `docker run` / compose with `-e`:
 
 > **Security note:** mounting `$HOME` gives the container read/write access
 > to everything under it. If that's too broad, bind-mount a narrower
-> directory instead (`COCOINDEX_HOST_WORKSPACE=/path/to/code`).
+> directory instead (`RAG4TREX_HOST_WORKSPACE=/path/to/code`).
 
 ### Build the image locally
 
@@ -592,9 +592,9 @@ docker build -t rag4trex:local -f docker/Dockerfile .
 
 For a detailed guide on choosing and configuring embedding models, see [EMBEDDINGS.md](EMBEDDINGS.md).
 
-Configuration lives in two YAML files, both created automatically by `ccc init`.
+Configuration lives in two YAML files, both created automatically by `rag4trex init`.
 
-### User Settings (`~/.cocoindex_code/global_settings.yml`)
+### User Settings (`~/.rag4trex/global_settings.yml`)
 
 Shared across all projects. Controls the embedding model and environment variables for the daemon.
 
@@ -606,7 +606,7 @@ embedding:
   min_interval_ms: 300                               # optional: pace LiteLLM embedding requests to reduce 429s; defaults to 5 for LiteLLM
 
   # Optional extra kwargs passed to the embedder, separately for indexing vs query.
-  # `ccc init` auto-populates these for known models (e.g. Cohere, Voyage, Nvidia NIM,
+  # `rag4trex init` auto-populates these for known models (e.g. Cohere, Voyage, Nvidia NIM,
   # nomic-ai code-retrieval models, Snowflake arctic-embed).
   # indexing_params:
   #   input_type: search_document        # litellm: input_type
@@ -619,7 +619,7 @@ envs:                                                # extra environment variabl
 
 > **Note:** The daemon inherits your shell environment. If an API key (e.g. `OPENAI_API_KEY`) is already set as an environment variable, you don't need to duplicate it in `envs`. The `envs` field is only for values that aren't in your environment.
 
-> **Custom location:** set `COCOINDEX_CODE_DIR` to place `global_settings.yml` somewhere other than `~/.cocoindex_code/` — useful if you want the file to live alongside your projects (e.g. on a synced folder).
+> **Custom location:** set `RAG4TREX_DIR` to place `global_settings.yml` somewhere other than `~/.rag4trex/` — useful if you want the file to live alongside your projects (e.g. on a synced folder).
 
 #### Reranking
 
@@ -688,13 +688,13 @@ embedding:
     input_type: search_query
 ```
 
-`ccc init` populates these automatically for models it recognizes — including all Cohere v3, Voyage, Nvidia NIM, Gemini embedding (`gemini/gemini-embedding-*`, `gemini/text-embedding-*`, `gemini/embedding-*` — LiteLLM auto-maps `input_type` to Gemini's `task_type`), `nomic-ai/CodeRankEmbed`, `nomic-ai/nomic-embed-code`, `nomic-ai/nomic-embed-text-v1`/`v1.5`, `mixedbread-ai/mxbai-embed-large-v1`, and the `Snowflake/snowflake-arctic-embed-*` family — and prints the chosen defaults. For other models, it leaves a commented-out template under `embedding:` so you can fill it in by hand.
+`rag4trex init` populates these automatically for models it recognizes — including all Cohere v3, Voyage, Nvidia NIM, Gemini embedding (`gemini/gemini-embedding-*`, `gemini/text-embedding-*`, `gemini/embedding-*` — LiteLLM auto-maps `input_type` to Gemini's `task_type`), `nomic-ai/CodeRankEmbed`, `nomic-ai/nomic-embed-code`, `nomic-ai/nomic-embed-text-v1`/`v1.5`, `mixedbread-ai/mxbai-embed-large-v1`, and the `Snowflake/snowflake-arctic-embed-*` family — and prints the chosen defaults. For other models, it leaves a commented-out template under `embedding:` so you can fill it in by hand.
 
 OpenAI embeddings (`text-embedding-3-*`, `text-embedding-ada-002`) are intentionally not in the list: they're symmetric and have no equivalent knob.
 
 **Accepted keys:** `prompt_name` (sentence-transformers) and `input_type` (litellm). Other keys are rejected at daemon startup with a clear error. Note: `dimensions` is intentionally not exposed here — output dimension must be identical for indexing and query, so it's a model-wide setting rather than a per-side knob.
 
-**Doctor checks both sides.** `ccc doctor` exercises the model once with `indexing_params` and once with `query_params`, reporting each as a separate `Model Check (indexing)` / `Model Check (query)` entry — so a misconfiguration on one side is diagnosable without hiding behind the other.
+**Doctor checks both sides.** `rag4trex doctor` exercises the model once with `indexing_params` and once with `query_params`, reporting each as a separate `Model Check (indexing)` / `Model Check (query)` entry — so a misconfiguration on one side is diagnosable without hiding behind the other.
 
 **Legacy-bridge warning:** if you're upgrading from an earlier version and your `global_settings.yml` uses `nomic-ai/CodeRankEmbed` or `nomic-ai/nomic-embed-code` without `indexing_params` / `query_params`, the daemon continues to apply the previous behavior (`prompt_name: query` at query time) and prints a one-time warning asking you to make the setting explicit. You can silence the warning by adding an empty block such as `query_params: {}`.
 
@@ -729,15 +729,15 @@ chunkers:
     module: example_toml_chunker:toml_chunker
 ```
 
-> `.cocoindex_code/` is automatically added to `.gitignore` during init.
+> `.rag4trex/` is automatically added to `.gitignore` during init.
 
 After editing `include_patterns`, `exclude_patterns`, or `language_overrides`:
 
-- Run `ccc doctor` to preview which files match.
-- Run `ccc index` or `ccc search --refresh ...` to update the existing index.
+- Run `rag4trex doctor` to preview which files match.
+- Run `rag4trex index` or `rag4trex search --refresh ...` to update the existing index.
 - You do not need to delete the index or restart the daemon for these file-matching changes.
 
-If you add or change custom `chunkers`, restart the daemon first so the chunker registry is reloaded, then run `ccc index`.
+If you add or change custom `chunkers`, restart the daemon first so the chunker registry is reloaded, then run `rag4trex index`.
 
 Use `chunkers` when you want to control how a file type is split into chunks before indexing.
 
@@ -770,7 +770,7 @@ See [`src/cocoindex_code/chunking.py`](./src/cocoindex_code/chunking.py) for the
 
 ## Embedding Models
 
-With the `[full]` extra installed, `ccc init` defaults to a local SentenceTransformers model ([Snowflake/snowflake-arctic-embed-xs](https://huggingface.co/Snowflake/snowflake-arctic-embed-xs)) — no API key required. To use a different model, edit `~/.cocoindex_code/global_settings.yml`.
+With the `[full]` extra installed, `rag4trex init` defaults to a local SentenceTransformers model ([Snowflake/snowflake-arctic-embed-xs](https://huggingface.co/Snowflake/snowflake-arctic-embed-xs)) — no API key required. To use a different model, edit `~/.rag4trex/global_settings.yml`.
 
 > The `envs` entries below are only needed if the key isn't already in your shell environment — the daemon inherits your environment automatically.
 
@@ -927,7 +927,7 @@ embedding:
   model: nomic-ai/CodeRankEmbed
 ```
 
-**Note:** Switching models requires re-indexing your codebase (`ccc reset && ccc index`) since the vector dimensions differ.
+**Note:** Switching models requires re-indexing your codebase (`rag4trex reset && rag4trex index`) since the vector dimensions differ.
 
 ## Supported Languages
 
@@ -968,27 +968,27 @@ embedding:
 
 ### Custom Database Location
 
-By default, index databases (`cocoindex.db` and `target_sqlite.db`) live alongside settings in `<project>/.cocoindex_code/`. When running in Docker, you may want the databases on the container's native filesystem for performance (LMDB doesn't work well on mounted volumes) while keeping the source code and settings on a mounted volume.
+By default, index databases (`cocoindex.db` and `target_sqlite.db`) live alongside settings in `<project>/.rag4trex/`. When running in Docker, you may want the databases on the container's native filesystem for performance (LMDB doesn't work well on mounted volumes) while keeping the source code and settings on a mounted volume.
 
-Set `COCOINDEX_CODE_DB_PATH_MAPPING` to remap database locations by path prefix:
+Set `RAG4TREX_DB_PATH_MAPPING` to remap database locations by path prefix:
 
 ```bash
-COCOINDEX_CODE_DB_PATH_MAPPING=/workspace=/db-files
+RAG4TREX_DB_PATH_MAPPING=/workspace=/db-files
 ```
 
-With this mapping, a project at `/workspace/myrepo` stores its databases in `/db-files/myrepo/` instead of `/workspace/myrepo/.cocoindex_code/`. Settings files remain in the original location.
+With this mapping, a project at `/workspace/myrepo` stores its databases in `/db-files/myrepo/` instead of `/workspace/myrepo/.rag4trex/`. Settings files remain in the original location.
 
 Multiple mappings are comma-separated and resolved in order (first match wins):
 
 ```bash
-COCOINDEX_CODE_DB_PATH_MAPPING=/workspace=/db-files,/workspace2=/db-files2
+RAG4TREX_DB_PATH_MAPPING=/workspace=/db-files,/workspace2=/db-files2
 ```
 
 Both source and target must be absolute paths. If no mapping matches, the default location is used.
 
 ## Troubleshooting
 
-Run `ccc doctor` to diagnose common issues. It checks your settings, daemon health, embedding model, file matching, and index status — all in one command.
+Run `rag4trex doctor` to diagnose common issues. It checks your settings, daemon health, embedding model, file matching, and index status — all in one command.
 
 ### `sqlite3.Connection object has no attribute enable_load_extension`
 
@@ -1020,7 +1020,7 @@ The index is stored in an LMDB database whose maximum size is fixed when the dae
 Raise the ceiling with the `COCOINDEX_LMDB_MAP_SIZE` environment variable (value in **bytes**). LMDB only grows the file as data is written, so a high limit doesn't pre-allocate disk — it's safe to set it generously:
 
 ```yaml
-# ~/.cocoindex_code/global_settings.yml
+# ~/.rag4trex/global_settings.yml
 envs:
   COCOINDEX_LMDB_MAP_SIZE: "34359738368"   # 32 GiB (= 32 * 1024^3)
 ```
@@ -1034,8 +1034,8 @@ export COCOINDEX_LMDB_MAP_SIZE=$((32 * 1024 * 1024 * 1024))   # 32 GiB
 The map size is read when the daemon starts, so restart it to pick up the change, then re-index:
 
 ```bash
-ccc daemon restart
-ccc index
+rag4trex daemon restart
+rag4trex index
 ```
 
 > This manual step is temporary. Once [cocoindex#2108](https://github.com/cocoindex-io/cocoindex/issues/2108) lands, the map size grows automatically when needed and `COCOINDEX_LMDB_MAP_SIZE` won't be necessary.
@@ -1046,11 +1046,13 @@ If you previously configured `rag4trex` via environment variables, the `rag4trex
 
 | Environment Variable | YAML Equivalent |
 |---------------------|-----------------|
-| `COCOINDEX_CODE_EMBEDDING_MODEL` | `embedding.model` in `global_settings.yml` |
-| `COCOINDEX_CODE_DEVICE` | `embedding.device` in `global_settings.yml` |
-| `COCOINDEX_CODE_ROOT_PATH` | Run `ccc init` in your project root instead |
-| `COCOINDEX_CODE_EXCLUDED_PATTERNS` | `exclude_patterns` in project `.rag4trex.yml` |
-| `COCOINDEX_CODE_EXTRA_EXTENSIONS` | `include_patterns` + `language_overrides` in project `.rag4trex.yml` |
+| `RAG4TREX_EMBEDDING_MODEL` | `embedding.model` in `global_settings.yml` |
+| `RAG4TREX_DEVICE` | `embedding.device` in `global_settings.yml` |
+| `RAG4TREX_ROOT_PATH` | Run `rag4trex init` in your project root instead |
+| `RAG4TREX_EXCLUDED_PATTERNS` | `exclude_patterns` in project `.rag4trex.yml` |
+| `RAG4TREX_EXTRA_EXTENSIONS` | `include_patterns` + `language_overrides` in project `.rag4trex.yml` |
+
+The older `COCOINDEX_CODE_*` names are still accepted as compatibility fallbacks.
 
 ## Telemetry
 

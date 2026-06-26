@@ -45,7 +45,7 @@ async def _index_project(
     **create_kwargs: Any,
 ) -> Project:
     """Create a Project and run a full index pass."""
-    settings = ProjectSettings(include_patterns=["**/*.*"], exclude_patterns=["**/.cocoindex_code"])
+    settings = ProjectSettings(include_patterns=["**/*.*"], exclude_patterns=["**/.rag4trex"])
     stub = _StubEmbedder()
     from cocoindex_code.settings import save_project_settings
 
@@ -63,7 +63,7 @@ async def _index_project(
 
 def _query_chunks(project_root: Path) -> list[dict[str, Any]]:
     """Read all stored chunks from the target SQLite database."""
-    db_path = project_root / ".cocoindex_code" / "target_sqlite.db"
+    db_path = project_root / ".rag4trex" / "target_sqlite.db"
     conn = coco_sqlite.connect(str(db_path), load_vec=True)
     try:
         with conn.readonly() as db:

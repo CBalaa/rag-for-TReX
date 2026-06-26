@@ -44,11 +44,11 @@ def _patch_user_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Redirect user_settings_dir() to a temp directory."""
     monkeypatch.setattr(
         "cocoindex_code.settings.user_settings_dir",
-        lambda: tmp_path / ".cocoindex_code",
+        lambda: tmp_path / ".rag4trex",
     )
     monkeypatch.setattr(
         "cocoindex_code.settings.user_settings_path",
-        lambda: tmp_path / ".cocoindex_code" / "global_settings.yml",
+        lambda: tmp_path / ".rag4trex" / "global_settings.yml",
     )
 
 
@@ -114,7 +114,7 @@ def test_save_and_load_user_settings(tmp_path: Path) -> None:
 
 @pytest.mark.usefixtures("_patch_user_dir")
 def test_load_user_settings_rejects_enabled_rerank_without_model(tmp_path: Path) -> None:
-    path = tmp_path / ".cocoindex_code" / "global_settings.yml"
+    path = tmp_path / ".rag4trex" / "global_settings.yml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         """
@@ -172,8 +172,7 @@ def test_load_project_settings_legacy_fallback(tmp_path: Path) -> None:
 
 
 def test_load_project_settings_indexes_shape(tmp_path: Path) -> None:
-    (tmp_path / ".cocoindex_code").mkdir()
-    (tmp_path / ".cocoindex_code" / "settings.yml").write_text(
+    (tmp_path / ".rag4trex.yml").write_text(
         """
 indexes:
   docs:
@@ -200,6 +199,16 @@ always_exclude:
     assert loaded.exclude_patterns == ["src/generated/**"]
     assert loaded.search.default_mode == "hybrid"
     assert loaded.always_exclude == ["**/*.key"]
+
+
+def test_load_project_settings_legacy_cocoindex_code_fallback(tmp_path: Path) -> None:
+    legacy = tmp_path / ".cocoindex_code" / "settings.yml"
+    legacy.parent.mkdir()
+    legacy.write_text("include_patterns:\n  - legacy-coco/**\n")
+
+    loaded = load_project_settings(tmp_path)
+
+    assert loaded.include_patterns == ["legacy-coco/**"]
 
 
 def test_explain_path_reports_ragignore_and_always_exclude(tmp_path: Path) -> None:
@@ -233,7 +242,7 @@ def test_load_user_settings_missing_file_raises() -> None:
 
 @pytest.mark.usefixtures("_patch_user_dir")
 def test_load_user_settings_empty_file_raises(tmp_path: Path) -> None:
-    path = tmp_path / ".cocoindex_code" / "global_settings.yml"
+    path = tmp_path / ".rag4trex" / "global_settings.yml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{}\n")
     with pytest.raises(ValueError):
@@ -242,7 +251,7 @@ def test_load_user_settings_empty_file_raises(tmp_path: Path) -> None:
 
 @pytest.mark.usefixtures("_patch_user_dir")
 def test_load_user_settings_missing_model_raises(tmp_path: Path) -> None:
-    path = tmp_path / ".cocoindex_code" / "global_settings.yml"
+    path = tmp_path / ".rag4trex" / "global_settings.yml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("embedding:\n  provider: litellm\n")
     with pytest.raises(ValueError):
@@ -305,10 +314,10 @@ def test_find_parent_with_marker_finds_git(tmp_path: Path) -> None:
     assert find_parent_with_marker(subdir) == repo
 
 
-def test_find_parent_with_marker_prefers_cocoindex_code(tmp_path: Path) -> None:
+def test_find_parent_with_marker_prefers_project_settings_over_git(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True)
-    (repo / ".cocoindex_code").mkdir(parents=True)
+    (repo / ".rag4trex.yml").write_text("include_patterns: []\n")
     subdir = repo / "src"
     subdir.mkdir()
     assert find_parent_with_marker(subdir) == repo
@@ -334,7 +343,7 @@ def test_user_settings_litellm_round_trip() -> None:
 
 @pytest.mark.usefixtures("_patch_user_dir")
 def test_load_user_settings_with_min_interval_ms(tmp_path: Path) -> None:
-    path = tmp_path / ".cocoindex_code" / "global_settings.yml"
+    path = tmp_path / ".rag4trex" / "global_settings.yml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "embedding:\n  provider: litellm\n  model: text-embedding-3-small\n  min_interval_ms: 300\n"
@@ -357,38 +366,38 @@ def test_project_settings_with_language_overrides(tmp_path: Path) -> None:
 
 
 class TestResolveDbDir:
-    """Tests for COCOINDEX_CODE_DB_PATH_MAPPING and resolve_db_dir()."""
+    """Tests for RAG4TREX_DB_PATH_MAPPING and resolve_db_dir()."""
 
     @pytest.fixture(autouse=True)
     def _clear_cache(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         """Reset cached mapping before each test."""
         _reset_db_path_mapping_cache()
-        monkeypatch.delenv("COCOINDEX_CODE_DB_PATH_MAPPING", raising=False)
+        monkeypatch.delenv("RAG4TREX_DB_PATH_MAPPING", raising=False)
         yield
         _reset_db_path_mapping_cache()
 
     def test_no_mapping(self, tmp_path: Path) -> None:
         project = tmp_path / "myproject"
-        assert resolve_db_dir(project) == project / ".cocoindex_code"
+        assert resolve_db_dir(project) == project / ".rag4trex"
 
     def test_single_mapping_match(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         src = tmp_path / "workspace"
         dst = tmp_path / "db-files"
-        monkeypatch.setenv("COCOINDEX_CODE_DB_PATH_MAPPING", f"{src}={dst}")
+        monkeypatch.setenv("RAG4TREX_DB_PATH_MAPPING", f"{src}={dst}")
         assert resolve_db_dir(src / "myproject") == dst / "myproject"
 
     def test_exact_root_match(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         src = tmp_path / "workspace"
         dst = tmp_path / "db-files"
-        monkeypatch.setenv("COCOINDEX_CODE_DB_PATH_MAPPING", f"{src}={dst}")
+        monkeypatch.setenv("RAG4TREX_DB_PATH_MAPPING", f"{src}={dst}")
         assert resolve_db_dir(src) == dst
 
     def test_no_match_falls_back(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         src = tmp_path / "workspace"
         dst = tmp_path / "db-files"
         other = tmp_path / "other" / "myproject"
-        monkeypatch.setenv("COCOINDEX_CODE_DB_PATH_MAPPING", f"{src}={dst}")
-        assert resolve_db_dir(other) == other / ".cocoindex_code"
+        monkeypatch.setenv("RAG4TREX_DB_PATH_MAPPING", f"{src}={dst}")
+        assert resolve_db_dir(other) == other / ".rag4trex"
 
     def test_multiple_mappings_first_wins(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -396,7 +405,7 @@ class TestResolveDbDir:
         src = tmp_path / "workspace"
         dst1 = tmp_path / "db1"
         dst2 = tmp_path / "db2"
-        monkeypatch.setenv("COCOINDEX_CODE_DB_PATH_MAPPING", f"{src}={dst1},{src / 'sub'}={dst2}")
+        monkeypatch.setenv("RAG4TREX_DB_PATH_MAPPING", f"{src}={dst1},{src / 'sub'}={dst2}")
         assert resolve_db_dir(src / "sub" / "proj") == dst1 / "sub" / "proj"
 
     def test_multiple_mappings_second_matches(
@@ -406,7 +415,7 @@ class TestResolveDbDir:
         src2 = tmp_path / "other"
         dst1 = tmp_path / "db1"
         dst2 = tmp_path / "db2"
-        monkeypatch.setenv("COCOINDEX_CODE_DB_PATH_MAPPING", f"{src1}={dst1},{src2}={dst2}")
+        monkeypatch.setenv("RAG4TREX_DB_PATH_MAPPING", f"{src1}={dst1},{src2}={dst2}")
         assert resolve_db_dir(src2 / "proj") == dst2 / "proj"
 
     def test_no_partial_component_match(
@@ -415,17 +424,17 @@ class TestResolveDbDir:
         src = tmp_path / "workspace"
         dst = tmp_path / "db-files"
         other = tmp_path / "workspace2" / "proj"
-        monkeypatch.setenv("COCOINDEX_CODE_DB_PATH_MAPPING", f"{src}={dst}")
-        assert resolve_db_dir(other) == other / ".cocoindex_code"
+        monkeypatch.setenv("RAG4TREX_DB_PATH_MAPPING", f"{src}={dst}")
+        assert resolve_db_dir(other) == other / ".rag4trex"
 
     def test_rejects_relative_source(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("COCOINDEX_CODE_DB_PATH_MAPPING", "relative/path=/db-files")
+        monkeypatch.setenv("RAG4TREX_DB_PATH_MAPPING", "relative/path=/db-files")
         with pytest.raises(ValueError, match="source path must be absolute"):
             resolve_db_dir(Path("/anything"))
 
     def test_rejects_relative_target(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         src = tmp_path / "workspace"
-        monkeypatch.setenv("COCOINDEX_CODE_DB_PATH_MAPPING", f"{src}=relative/path")
+        monkeypatch.setenv("RAG4TREX_DB_PATH_MAPPING", f"{src}=relative/path")
         with pytest.raises(ValueError, match="target path must be absolute"):
             resolve_db_dir(tmp_path / "anything")
 
@@ -434,13 +443,13 @@ class TestResolveDbDir:
         src2 = tmp_path / "other"
         dst1 = tmp_path / "db-files"
         dst2 = tmp_path / "db2"
-        monkeypatch.setenv("COCOINDEX_CODE_DB_PATH_MAPPING", f"{src1}={dst1},,{src2}={dst2},")
+        monkeypatch.setenv("RAG4TREX_DB_PATH_MAPPING", f"{src1}={dst1},,{src2}={dst2},")
         assert resolve_db_dir(src2 / "proj") == dst2 / "proj"
 
     def test_nested_project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         src = tmp_path / "workspace"
         dst = tmp_path / "db-files"
-        monkeypatch.setenv("COCOINDEX_CODE_DB_PATH_MAPPING", f"{src}={dst}")
+        monkeypatch.setenv("RAG4TREX_DB_PATH_MAPPING", f"{src}={dst}")
         assert resolve_db_dir(src / "org" / "repo" / "subdir") == dst / "org" / "repo" / "subdir"
 
 
@@ -481,7 +490,7 @@ def test_save_initial_user_settings_round_trip() -> None:
     content = path.read_text()
 
     # Hint comment and the four commented env-var examples.
-    assert "ccc doctor" in content
+    assert "rag4trex doctor" in content
     assert "# envs:" in content
     for key in ("OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "VOYAGE_API_KEY"):
         assert f"#   {key}:" in content
@@ -512,7 +521,7 @@ def test_save_initial_user_settings_model_with_colon() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Host path mapping (COCOINDEX_CODE_HOST_PATH_MAPPING)
+# Host path mapping (RAG4TREX_HOST_PATH_MAPPING)
 # ---------------------------------------------------------------------------
 
 
@@ -522,7 +531,7 @@ class TestHostPathMapping:
     @pytest.fixture(autouse=True)
     def _clear_cache(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         _reset_host_path_mapping_cache()
-        monkeypatch.delenv("COCOINDEX_CODE_HOST_PATH_MAPPING", raising=False)
+        monkeypatch.delenv("RAG4TREX_HOST_PATH_MAPPING", raising=False)
         yield
         _reset_host_path_mapping_cache()
 
@@ -531,7 +540,7 @@ class TestHostPathMapping:
         host = tmp_path / "alice"
         container.mkdir()
         host.mkdir()
-        monkeypatch.setenv("COCOINDEX_CODE_HOST_PATH_MAPPING", f"{container}={host}")
+        monkeypatch.setenv("RAG4TREX_HOST_PATH_MAPPING", f"{container}={host}")
         assert format_path_for_display(container / "proj" / "app.py") == str(
             host / "proj" / "app.py"
         )
@@ -541,7 +550,7 @@ class TestHostPathMapping:
         host = tmp_path / "alice"
         container.mkdir()
         host.mkdir()
-        monkeypatch.setenv("COCOINDEX_CODE_HOST_PATH_MAPPING", f"{container}={host}")
+        monkeypatch.setenv("RAG4TREX_HOST_PATH_MAPPING", f"{container}={host}")
         assert normalize_input_path(host / "proj") == str(container / "proj")
 
     def test_unmatched_absolute_passes_through(
@@ -551,7 +560,7 @@ class TestHostPathMapping:
         host = tmp_path / "alice"
         container.mkdir()
         host.mkdir()
-        monkeypatch.setenv("COCOINDEX_CODE_HOST_PATH_MAPPING", f"{container}={host}")
+        monkeypatch.setenv("RAG4TREX_HOST_PATH_MAPPING", f"{container}={host}")
         unrelated = "/etc/hosts"
         assert format_path_for_display(unrelated) == unrelated
         assert normalize_input_path(unrelated) == unrelated
@@ -561,7 +570,7 @@ class TestHostPathMapping:
         host = tmp_path / "alice"
         container.mkdir()
         host.mkdir()
-        monkeypatch.setenv("COCOINDEX_CODE_HOST_PATH_MAPPING", f"{container}={host}")
+        monkeypatch.setenv("RAG4TREX_HOST_PATH_MAPPING", f"{container}={host}")
         assert format_path_for_display("src/app.py") == "src/app.py"
         assert normalize_input_path("src/app.py") == "src/app.py"
 
@@ -575,7 +584,7 @@ class TestHostPathMapping:
         host_ws.mkdir()
         host_shared.mkdir()
         monkeypatch.setenv(
-            "COCOINDEX_CODE_HOST_PATH_MAPPING",
+            "RAG4TREX_HOST_PATH_MAPPING",
             f"{ws}={host_ws},{shared}={host_shared}",
         )
         # Path under shared — first mapping wins, not the more-specific one.
@@ -590,7 +599,7 @@ class TestHostPathMapping:
         assert get_host_path_mappings() == []
 
     def test_invalid_env_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("COCOINDEX_CODE_HOST_PATH_MAPPING", "relative=/abs")
+        monkeypatch.setenv("RAG4TREX_HOST_PATH_MAPPING", "relative=/abs")
         with pytest.raises(ValueError, match="source path must be absolute"):
             get_host_path_mappings()
 
@@ -601,22 +610,22 @@ class TestHostPathMapping:
 
 
 def test_find_parent_with_marker_skips_global_only(tmp_path: Path) -> None:
-    """A workspace-root ``.cocoindex_code/`` holding only ``global_settings.yml``
+    """A workspace-root ``.rag4trex/`` holding only ``global_settings.yml``
     should NOT trigger the parent-marker check (it's not a project).
     """
     ws = tmp_path / "ws"
-    (ws / ".cocoindex_code").mkdir(parents=True)
-    (ws / ".cocoindex_code" / "global_settings.yml").write_text("embedding: {model: x}\n")
+    (ws / ".rag4trex").mkdir(parents=True)
+    (ws / ".rag4trex" / "global_settings.yml").write_text("embedding: {model: x}\n")
     subdir = ws / "myproject"
     subdir.mkdir()
     assert find_parent_with_marker(subdir) is None
 
 
 def test_find_parent_with_marker_detects_project_settings(tmp_path: Path) -> None:
-    """``.cocoindex_code/settings.yml`` at a parent is a real project marker."""
+    """``.rag4trex.yml`` at a parent is a real project marker."""
     repo = tmp_path / "repo"
-    (repo / ".cocoindex_code").mkdir(parents=True)
-    (repo / ".cocoindex_code" / "settings.yml").write_text("include_patterns: []\n")
+    repo.mkdir(parents=True)
+    (repo / ".rag4trex.yml").write_text("include_patterns: []\n")
     subdir = repo / "src"
     subdir.mkdir()
     assert find_parent_with_marker(subdir) == repo
@@ -631,19 +640,19 @@ def test_daemon_runtime_dir_uses_env_var(tmp_path: Path, monkeypatch: pytest.Mon
     from cocoindex_code._daemon_paths import daemon_runtime_dir
 
     target = tmp_path / "runtime"
-    monkeypatch.setenv("COCOINDEX_CODE_RUNTIME_DIR", str(target))
+    monkeypatch.setenv("RAG4TREX_RUNTIME_DIR", str(target))
     assert daemon_runtime_dir() == target
 
 
 def test_daemon_runtime_dir_falls_back_to_user_settings_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When COCOINDEX_CODE_RUNTIME_DIR is unset, falls back to user_settings_dir()."""
+    """When RAG4TREX_RUNTIME_DIR is unset, falls back to user_settings_dir()."""
     from cocoindex_code._daemon_paths import daemon_runtime_dir
 
     settings_dir = tmp_path / "settings"
-    monkeypatch.delenv("COCOINDEX_CODE_RUNTIME_DIR", raising=False)
-    monkeypatch.setenv("COCOINDEX_CODE_DIR", str(settings_dir))
+    monkeypatch.delenv("RAG4TREX_RUNTIME_DIR", raising=False)
+    monkeypatch.setenv("RAG4TREX_DIR", str(settings_dir))
     assert daemon_runtime_dir() == settings_dir
 
 
@@ -654,7 +663,7 @@ def test_daemon_runtime_dir_falls_back_to_user_settings_dir(
 
 @pytest.mark.usefixtures("_patch_user_dir")
 def test_embedding_params_missing_load_as_none(tmp_path: Path) -> None:
-    path = tmp_path / ".cocoindex_code" / "global_settings.yml"
+    path = tmp_path / ".rag4trex" / "global_settings.yml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("embedding:\n  provider: litellm\n  model: m\n")
     loaded = load_user_settings()

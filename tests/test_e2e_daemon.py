@@ -1,8 +1,8 @@
 """End-to-end tests for the CLI → daemon subprocess flow.
 
 These tests start a real daemon subprocess via ``start_daemon()`` and interact
-with it through the per-request client functions, mirroring how ``ccc index`` /
-``ccc search`` actually work.
+with it through the per-request client functions, mirroring how ``rag4trex index`` /
+``rag4trex search`` actually work.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ def calculate_fibonacci(n: int) -> int:
 def e2e_daemon() -> Iterator[tuple[str, Path]]:
     """Start a real daemon subprocess and return (sock_path, project_dir).
 
-    Uses COCOINDEX_CODE_DIR env var so the subprocess uses the temp directory.
+    Uses RAG4TREX_DIR env var so the subprocess uses the temp directory.
     """
     # Use a short temp dir to stay within AF_UNIX path limit
     base_dir = Path(tempfile.mkdtemp(prefix="ccc_e2e_"))
@@ -50,8 +50,8 @@ def e2e_daemon() -> Iterator[tuple[str, Path]]:
     (project_dir / "main.py").write_text(SAMPLE_PY)
 
     # Set env var BEFORE calling any daemon/settings functions
-    old_env = os.environ.get("COCOINDEX_CODE_DIR")
-    os.environ["COCOINDEX_CODE_DIR"] = str(base_dir)
+    old_env = os.environ.get("RAG4TREX_DIR")
+    os.environ["RAG4TREX_DIR"] = str(base_dir)
 
     try:
         save_user_settings(make_test_user_settings())
@@ -78,9 +78,9 @@ def e2e_daemon() -> Iterator[tuple[str, Path]]:
     finally:
         stop_daemon()
         if old_env is None:
-            os.environ.pop("COCOINDEX_CODE_DIR", None)
+            os.environ.pop("RAG4TREX_DIR", None)
         else:
-            os.environ["COCOINDEX_CODE_DIR"] = old_env
+            os.environ["RAG4TREX_DIR"] = old_env
 
 
 def test_daemon_subprocess_starts(e2e_daemon: tuple[str, Path]) -> None:
@@ -90,7 +90,7 @@ def test_daemon_subprocess_starts(e2e_daemon: tuple[str, Path]) -> None:
 
 
 def test_index_and_search_via_client(e2e_daemon: tuple[str, Path]) -> None:
-    """Index a project and search via the client, same as ccc index / ccc search."""
+    """Index a project and search via the client, same as rag4trex index / rag4trex search."""
     _, project_dir = e2e_daemon
 
     resp = client.index(str(project_dir))
@@ -112,17 +112,17 @@ def test_index_and_search_via_client(e2e_daemon: tuple[str, Path]) -> None:
 
 
 def test_daemon_starts_in_no_settings_mode_without_global_settings() -> None:
-    """Daemon started against an empty COCOINDEX_CODE_DIR should come up without
+    """Daemon started against an empty RAG4TREX_DIR should come up without
     creating ``global_settings.yml``. The file stays absent; the handshake reports
-    ``mtime=None``. Project requests are rejected with a clear "run `ccc init`" error.
+    ``mtime=None``. Project requests are rejected with a clear "run `rag4trex init`" error.
     """
     from cocoindex_code.client import stop_daemon as _stop
     from cocoindex_code.protocol import ProjectStatusRequest, encode_request
     from cocoindex_code.settings import user_settings_path
 
     base_dir = Path(tempfile.mkdtemp(prefix="ccc_nosettings_"))
-    old_env = os.environ.get("COCOINDEX_CODE_DIR")
-    os.environ["COCOINDEX_CODE_DIR"] = str(base_dir)
+    old_env = os.environ.get("RAG4TREX_DIR")
+    os.environ["RAG4TREX_DIR"] = str(base_dir)
 
     try:
         assert not user_settings_path().is_file()
@@ -157,7 +157,7 @@ def test_daemon_starts_in_no_settings_mode_without_global_settings() -> None:
         conn = _raw_connect_and_handshake()
         try:
             # Send a project request — should get an ErrorResponse pointing at
-            # `ccc init`, not a crash.
+            # `rag4trex init`, not a crash.
             conn.send_bytes(encode_request(ProjectStatusRequest(project_root=str(base_dir))))
             resp = decode_response(conn.recv_bytes())
         finally:
@@ -170,18 +170,18 @@ def test_daemon_starts_in_no_settings_mode_without_global_settings() -> None:
     finally:
         _stop()
         if old_env is None:
-            os.environ.pop("COCOINDEX_CODE_DIR", None)
+            os.environ.pop("RAG4TREX_DIR", None)
         else:
-            os.environ["COCOINDEX_CODE_DIR"] = old_env
+            os.environ["RAG4TREX_DIR"] = old_env
 
 
 def test_daemon_env_response_includes_host_path_mappings(
     e2e_daemon: tuple[str, Path],
 ) -> None:
-    """``client.daemon_env`` surfaces the parsed COCOINDEX_CODE_HOST_PATH_MAPPING."""
+    """``client.daemon_env`` surfaces the parsed RAG4TREX_HOST_PATH_MAPPING."""
     _, _project_dir = e2e_daemon
 
-    # The session daemon was started without COCOINDEX_CODE_HOST_PATH_MAPPING,
+    # The session daemon was started without RAG4TREX_HOST_PATH_MAPPING,
     # so this just verifies the field is exposed on the wire and defaults to empty.
     resp = client.daemon_env()
     assert hasattr(resp, "host_path_mappings")

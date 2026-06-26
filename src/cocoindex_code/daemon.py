@@ -127,7 +127,7 @@ class ProjectRegistry:
 
     ``_embedder`` is ``None`` when the daemon is running in "no-settings mode"
     (started before ``global_settings.yml`` existed). In that state
-    ``get_project`` raises an error pointing the user at ``ccc init``; the
+    ``get_project`` raises an error pointing the user at ``rag4trex init``; the
     daemon still serves handshakes so the client can detect the mtime
     mismatch once the file is created and trigger a supervisor respawn.
     """
@@ -407,7 +407,7 @@ async def _check_model(
             name=name,
             ok=False,
             details=[],
-            errors=["Daemon has no global settings loaded. Run `ccc init` to set up."],
+            errors=["Daemon has no global settings loaded. Run `rag4trex init` to set up."],
         )
     result = await check_embedding(embedder, params)
     params_detail = f"params: {params}" if params else "params: {} (no extra kwargs)"
@@ -713,9 +713,9 @@ def run_daemon() -> None:
 
     # No-settings mode: start even when global_settings.yml is missing so the
     # client can complete its handshake, detect the mtime mismatch once
-    # `ccc init` writes the file, and trigger a supervisor respawn. The
+    # `rag4trex init` writes the file, and trigger a supervisor respawn. The
     # alternative (auto-creating defaults) would skip the interactive
-    # provider/model picker in `ccc init`.
+    # provider/model picker in `rag4trex init`.
     settings_mtime_us = global_settings_mtime_us()  # None when file is missing
     embedder: Embedder | None
     reranker: Reranker | None = None

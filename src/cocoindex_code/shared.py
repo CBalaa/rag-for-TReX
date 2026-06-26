@@ -50,7 +50,7 @@ class EmbeddingCheckResult(NamedTuple):
 
     On success ``error is None`` and ``dim`` holds the embedding dimension. On
     failure ``error`` holds a one-line summary and ``traceback`` the full
-    formatted traceback (for surfacing daemon-side stack traces in `ccc doctor`).
+    formatted traceback (for surfacing daemon-side stack traces in `rag4trex doctor`).
     """
 
     dim: int | None

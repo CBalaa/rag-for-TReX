@@ -275,7 +275,7 @@ class DoctorCheckResult(_msgspec.Struct):
     ok: bool
     details: list[str]
     errors: list[str]
-    # Full formatted traceback for a failed check, shown by `ccc doctor` to aid
+    # Full formatted traceback for a failed check, shown by `rag4trex doctor` to aid
     # debugging of daemon-side exceptions (e.g. a failing model check).
     traceback: str | None = None
 

@@ -2,7 +2,7 @@
 
 Each test function represents a complete session: a series of CLI commands
 executed in order, verifying compound stateful effects.  Tests use a real
-daemon subprocess (via COCOINDEX_CODE_DIR env var) and the actual CLI
+daemon subprocess (via RAG4TREX_DIR env var) and the actual CLI
 commands through typer's CliRunner.
 """
 
@@ -107,7 +107,7 @@ module.exports = { handleRequest };
 def e2e_project() -> Iterator[Path]:
     """Set up a temp project dir with sample files.
 
-    Cleans up with ``ccc reset --all -f`` and daemon stop.
+    Cleans up with ``rag4trex reset --all -f`` and daemon stop.
     """
     base_dir = Path(tempfile.mkdtemp(prefix="ccc_e2e_"))
     project_dir = base_dir / "project"
@@ -119,12 +119,12 @@ def e2e_project() -> Iterator[Path]:
     (lib_dir / "database.py").write_text(SAMPLE_DATABASE_PY)
     (project_dir / ".git").mkdir()
 
-    old_env = os.environ.get("COCOINDEX_CODE_DIR")
-    os.environ["COCOINDEX_CODE_DIR"] = str(base_dir)
+    old_env = os.environ.get("RAG4TREX_DIR")
+    os.environ["RAG4TREX_DIR"] = str(base_dir)
     old_cwd = os.getcwd()
     os.chdir(project_dir)
 
-    # Pre-write global settings with the lightweight test model so `ccc init`
+    # Pre-write global settings with the lightweight test model so `rag4trex init`
     # in these tests skips the new interactive flow and existing assertions
     # continue to exercise the same indexing behavior as before.
     save_user_settings(make_test_user_settings())
@@ -137,9 +137,9 @@ def e2e_project() -> Iterator[Path]:
         stop_daemon()
         os.chdir(old_cwd)
         if old_env is None:
-            os.environ.pop("COCOINDEX_CODE_DIR", None)
+            os.environ.pop("RAG4TREX_DIR", None)
         else:
-            os.environ["COCOINDEX_CODE_DIR"] = old_env
+            os.environ["RAG4TREX_DIR"] = old_env
 
 
 # ---------------------------------------------------------------------------
@@ -241,8 +241,8 @@ def test_session_reset_databases(e2e_project: Path) -> None:
     assert (e2e_project / ".rag4trex.yml").exists()
 
     # DB files should be gone
-    assert not (e2e_project / ".cocoindex_code" / "cocoindex.db").exists()
-    assert not (e2e_project / ".cocoindex_code" / "target_sqlite.db").exists()
+    assert not (e2e_project / ".rag4trex" / "cocoindex.db").exists()
+    assert not (e2e_project / ".rag4trex" / "target_sqlite.db").exists()
 
     # Restart daemon to fully release LMDB handles.
     # On free-threaded Python (3.14t), deferred refcounting in the daemon
@@ -268,7 +268,7 @@ def test_session_reset_all(e2e_project: Path) -> None:
     # .gitignore should have the entry (project has .git dir)
     gitignore = e2e_project / ".gitignore"
     assert gitignore.is_file()
-    assert "/.cocoindex_code/" in gitignore.read_text()
+    assert "/.rag4trex/" in gitignore.read_text()
 
     # Reset --all
     result = runner.invoke(app, ["reset", "--all", "-f"], catch_exceptions=False)
@@ -279,12 +279,12 @@ def test_session_reset_all(e2e_project: Path) -> None:
     assert not (e2e_project / ".rag4trex.yml").exists()
 
     # .gitignore entry should be removed
-    assert "/.cocoindex_code/" not in gitignore.read_text()
+    assert "/.rag4trex/" not in gitignore.read_text()
 
     # Search should fail — not initialized
     result = runner.invoke(app, ["search", "fibonacci"])
     assert result.exit_code != 0
-    assert "ccc init" in result.output
+    assert "rag4trex init" in result.output
 
 
 def test_session_reset_then_full_reinit(e2e_project: Path) -> None:
@@ -328,7 +328,7 @@ def test_session_respects_gitignore(e2e_project: Path) -> None:
     result = runner.invoke(app, ["index"], catch_exceptions=False)
     assert result.exit_code == 0, result.output
 
-    db_path = e2e_project / ".cocoindex_code" / "target_sqlite.db"
+    db_path = e2e_project / ".rag4trex" / "target_sqlite.db"
     conn = coco_sqlite.connect(str(db_path), load_vec=True)
     try:
         with conn.readonly() as db:
@@ -397,10 +397,10 @@ def test_session_search_refresh() -> None:
 
 @pytest.mark.usefixtures("e2e_project")
 def test_session_index_not_initialized_errors() -> None:
-    """Running ``ccc index`` from uninitialized dir should error."""
+    """Running ``rag4trex index`` from uninitialized dir should error."""
     result = runner.invoke(app, ["index"])
     assert result.exit_code != 0
-    assert "ccc init" in result.output
+    assert "rag4trex init" in result.output
 
 
 def test_session_subdirectory_path_default(e2e_project: Path) -> None:
@@ -435,11 +435,11 @@ def test_session_not_initialized_errors(e2e_project: Path) -> None:
 
     result = runner.invoke(app, ["search", "hello"])
     assert result.exit_code != 0
-    assert "ccc init" in result.output
+    assert "rag4trex init" in result.output
 
     result = runner.invoke(app, ["status"])
     assert result.exit_code != 0
-    assert "ccc init" in result.output
+    assert "rag4trex init" in result.output
 
     # Return to project dir so fixture cleanup works
     os.chdir(e2e_project)
@@ -541,7 +541,7 @@ def e2e_project_no_global_settings() -> Iterator[Path]:
     """Set up a project with project settings but NO global_settings.yml.
 
     This reproduces the scenario from issue #113 where a user creates project
-    settings manually but hasn't run ``ccc init`` (which creates global settings).
+    settings manually but hasn't run ``rag4trex init`` (which creates global settings).
     """
     base_dir = Path(tempfile.mkdtemp(prefix="ccc_e2e_"))
     project_dir = base_dir / "project"
@@ -549,8 +549,8 @@ def e2e_project_no_global_settings() -> Iterator[Path]:
     (project_dir / "main.py").write_text(SAMPLE_MAIN_PY)
     (project_dir / ".git").mkdir()
 
-    old_env = os.environ.get("COCOINDEX_CODE_DIR")
-    os.environ["COCOINDEX_CODE_DIR"] = str(base_dir)
+    old_env = os.environ.get("RAG4TREX_DIR")
+    os.environ["RAG4TREX_DIR"] = str(base_dir)
     old_cwd = os.getcwd()
     os.chdir(project_dir)
 
@@ -563,29 +563,29 @@ def e2e_project_no_global_settings() -> Iterator[Path]:
         os.chdir(old_cwd)
         stop_daemon()
         if old_env is None:
-            os.environ.pop("COCOINDEX_CODE_DIR", None)
+            os.environ.pop("RAG4TREX_DIR", None)
         else:
-            os.environ["COCOINDEX_CODE_DIR"] = old_env
+            os.environ["RAG4TREX_DIR"] = old_env
 
 
 @pytest.mark.usefixtures("e2e_project_no_global_settings")
 def test_session_missing_global_settings_early_error() -> None:
     """When global_settings.yml is missing, project commands should fail early with guidance."""
-    # `ccc status` should detect missing global settings before even starting the daemon.
+    # `rag4trex status` should detect missing global settings before even starting the daemon.
     result = runner.invoke(app, ["status"])
     assert result.exit_code != 0, f"Expected failure but got: {result.output}"
     assert "Global settings not found" in result.output
     assert "global_settings.yml" in result.output
-    assert "ccc init" in result.output
+    assert "rag4trex init" in result.output
 
 
 @pytest.mark.usefixtures("e2e_project_no_global_settings")
 def test_session_daemon_restart_with_no_global_settings() -> None:
-    """``ccc daemon restart`` without ``global_settings.yml`` starts the daemon in
+    """``rag4trex daemon restart`` without ``global_settings.yml`` starts the daemon in
     no-settings mode rather than failing hard.
 
     The daemon comes up, accepts handshakes, but rejects project requests until
-    ``ccc init`` writes the file. The handshake mtime mismatch then drives the
+    ``rag4trex init`` writes the file. The handshake mtime mismatch then drives the
     restart that loads real settings — here we just verify the restart itself
     succeeds and the file stays absent (no silent auto-create).
     """
@@ -595,7 +595,7 @@ def test_session_daemon_restart_with_no_global_settings() -> None:
     assert result.exit_code == 0, f"Expected success but got: {result.output}"
     assert "Daemon restarted." in result.output
 
-    # No auto-creation — user still needs to run `ccc init` to pick a model
+    # No auto-creation — user still needs to run `rag4trex init` to pick a model
     # (and trigger the supervised respawn with real settings).
     assert not user_settings_path().is_file()
 
@@ -630,7 +630,7 @@ def _fake_doctor_ok(
 
 @pytest.fixture()
 def e2e_fresh_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
-    """Fresh COCOINDEX_CODE_DIR with NO global settings and NO project settings.
+    """Fresh RAG4TREX_DIR with NO global settings and NO project settings.
 
     Distinct from ``e2e_project`` (which pre-writes global settings): tests
     that exercise the interactive init flow need a genuinely empty state.
@@ -643,8 +643,8 @@ def e2e_fresh_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     (project_dir / "main.py").write_text(SAMPLE_MAIN_PY)
     (project_dir / ".git").mkdir()
 
-    old_env = os.environ.get("COCOINDEX_CODE_DIR")
-    os.environ["COCOINDEX_CODE_DIR"] = str(base_dir)
+    old_env = os.environ.get("RAG4TREX_DIR")
+    os.environ["RAG4TREX_DIR"] = str(base_dir)
     old_cwd = os.getcwd()
     os.chdir(project_dir)
 
@@ -656,9 +656,9 @@ def e2e_fresh_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
         os.chdir(old_cwd)
         stop_daemon()
         if old_env is None:
-            os.environ.pop("COCOINDEX_CODE_DIR", None)
+            os.environ.pop("RAG4TREX_DIR", None)
         else:
-            os.environ["COCOINDEX_CODE_DIR"] = old_env
+            os.environ["RAG4TREX_DIR"] = old_env
 
 
 def test_resolve_embedding_choice_flag_wins() -> None:
@@ -796,7 +796,7 @@ def test_init_model_test_failure_is_non_fatal(
     combined = result.output + (result.stderr or "")
     assert "[FAIL]" in combined
     assert "AuthenticationError" in combined
-    assert "ccc doctor" in combined
+    assert "rag4trex doctor" in combined
     assert "envs:" in combined
 
     # Settings file was written (not rolled back) and project was initialized.
@@ -846,7 +846,7 @@ async def test_daemon_check_model_maps_failure_to_doctor_result() -> None:
     assert len(result.errors) == 1
     assert result.errors[0].startswith("RuntimeError:")
     assert "boom" in result.errors[0]
-    # The full traceback is carried through so `ccc doctor` can display it.
+    # The full traceback is carried through so `rag4trex doctor` can display it.
     assert result.traceback is not None
     assert "Traceback (most recent call last):" in result.traceback
     assert "boom" in result.traceback
@@ -876,7 +876,7 @@ def test_dockerfile_install_line_uses_full_extra() -> None:
 
 @pytest.fixture()
 def e2e_project_with_db_mapping() -> Iterator[tuple[Path, Path]]:
-    """Set up a project with COCOINDEX_CODE_DB_PATH_MAPPING pointing to a separate db dir.
+    """Set up a project with RAG4TREX_DB_PATH_MAPPING pointing to a separate db dir.
 
     Yields (project_dir, db_base_dir).
     """
@@ -890,11 +890,11 @@ def e2e_project_with_db_mapping() -> Iterator[tuple[Path, Path]]:
     (project_dir / ".git").mkdir()
 
     old_env = {
-        k: os.environ.get(k) for k in ("COCOINDEX_CODE_DIR", "COCOINDEX_CODE_DB_PATH_MAPPING")
+        k: os.environ.get(k) for k in ("RAG4TREX_DIR", "RAG4TREX_DB_PATH_MAPPING")
     }
-    os.environ["COCOINDEX_CODE_DIR"] = str(base_dir)
+    os.environ["RAG4TREX_DIR"] = str(base_dir)
     workspace = str(base_dir / "workspace")
-    os.environ["COCOINDEX_CODE_DB_PATH_MAPPING"] = f"{workspace}={db_base_dir}"
+    os.environ["RAG4TREX_DB_PATH_MAPPING"] = f"{workspace}={db_base_dir}"
     _reset_db_path_mapping_cache()
     old_cwd = os.getcwd()
     os.chdir(project_dir)
@@ -934,8 +934,8 @@ def test_session_db_path_mapping(
 
     # Databases should be in the mapped directory
     assert (mapped_db_dir / "target_sqlite.db").exists()
-    # Databases should NOT be in the project's .cocoindex_code dir
-    assert not (project_dir / ".cocoindex_code" / "target_sqlite.db").exists()
+    # Databases should NOT be in the project's .rag4trex dir
+    assert not (project_dir / ".rag4trex" / "target_sqlite.db").exists()
 
     # Search should work
     result = runner.invoke(app, ["search", "fibonacci"], catch_exceptions=False)
@@ -961,7 +961,7 @@ class TestCodebaseRootDiscovery:
     def test_prefers_cocoindex_code_over_git(self, tmp_path: Path) -> None:
         parent = tmp_path / "project"
         parent.mkdir()
-        (parent / ".cocoindex_code").mkdir()
+        (parent / ".rag4trex").mkdir()
         (parent / ".git").mkdir()
         subdir = parent / "src" / "lib"
         subdir.mkdir(parents=True)

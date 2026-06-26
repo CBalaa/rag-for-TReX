@@ -44,7 +44,7 @@ async def _project(tmp_path: Path) -> Project:
         tmp_path,
         ProjectSettings(
             include_patterns=["**/*.py"],
-            exclude_patterns=["**/.cocoindex_code"],
+            exclude_patterns=["**/.rag4trex"],
             docs_include_patterns=["**/*.md", "**/*.mdx", "**/*.markdown"],
             docs_exclude_patterns=["docs/private/**"],
         ),
@@ -62,7 +62,7 @@ async def _project_with_reranker(tmp_path: Path) -> Project:
         tmp_path,
         ProjectSettings(
             include_patterns=["**/*.py"],
-            exclude_patterns=["**/.cocoindex_code"],
+            exclude_patterns=["**/.rag4trex"],
             docs_include_patterns=["**/*.md", "**/*.mdx", "**/*.markdown"],
             docs_exclude_patterns=[],
         ),
@@ -78,7 +78,7 @@ async def _project_with_reranker(tmp_path: Path) -> Project:
 
 def _docs_rows(project_root: Path) -> list[dict[str, Any]]:
     conn = coco_sqlite.connect(
-        str(project_root / ".cocoindex_code" / "target_sqlite.db"),
+        str(project_root / ".rag4trex" / "target_sqlite.db"),
         load_vec=True,
     )
     try:
@@ -99,7 +99,7 @@ def _docs_rows(project_root: Path) -> list[dict[str, Any]]:
 
 def _code_rows(project_root: Path) -> list[dict[str, Any]]:
     conn = coco_sqlite.connect(
-        str(project_root / ".cocoindex_code" / "target_sqlite.db"),
+        str(project_root / ".rag4trex" / "target_sqlite.db"),
         load_vec=True,
     )
     try:

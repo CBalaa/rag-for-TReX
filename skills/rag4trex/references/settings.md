@@ -1,4 +1,4 @@
-# ccc Settings Reference
+# rag4trex Settings Reference
 
 Use this reference only to understand where RAG configuration lives. The skill
 itself should use MCP tools for discovery and normal file-reading tools for
@@ -9,7 +9,7 @@ authoritative source content.
 User-level settings live at:
 
 ```text
-~/.cocoindex_code/global_settings.yml
+~/.rag4trex/global_settings.yml
 ```
 
 They configure embedding and rerank models:
