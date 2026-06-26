@@ -8,7 +8,7 @@ After installing `rag4trex`, install the bundled Codex skill:
 rag4trex install-skill
 ```
 
-The default destination is `$CODEX_HOME/skills/ccc`, or `~/.codex/skills/ccc`
+The default destination is `$CODEX_HOME/skills/rag4trex`, or `~/.codex/skills/rag4trex`
 when `CODEX_HOME` is unset.
 
 Use `--force` to replace an existing local copy:

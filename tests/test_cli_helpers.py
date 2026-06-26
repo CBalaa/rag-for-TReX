@@ -250,14 +250,14 @@ def test_install_skill_to_target_dir(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 0, result.output
-    assert (target_dir / "ccc" / "SKILL.md").is_file()
-    assert (target_dir / "ccc" / "references" / "management.md").is_file()
-    assert (target_dir / "ccc" / "references" / "settings.md").is_file()
+    assert (target_dir / "rag4trex" / "SKILL.md").is_file()
+    assert (target_dir / "rag4trex" / "references" / "management.md").is_file()
+    assert (target_dir / "rag4trex" / "references" / "settings.md").is_file()
 
 
 def test_install_skill_refuses_existing_without_force(tmp_path: Path) -> None:
     target_dir = tmp_path / "skills"
-    existing = target_dir / "ccc"
+    existing = target_dir / "rag4trex"
     existing.mkdir(parents=True)
     (existing / "SKILL.md").write_text("old skill\n")
 
@@ -270,7 +270,7 @@ def test_install_skill_refuses_existing_without_force(tmp_path: Path) -> None:
 
 def test_install_skill_force_replaces_existing(tmp_path: Path) -> None:
     target_dir = tmp_path / "skills"
-    existing = target_dir / "ccc"
+    existing = target_dir / "rag4trex"
     existing.mkdir(parents=True)
     (existing / "old.txt").write_text("old skill\n")
 
@@ -285,6 +285,23 @@ def test_install_skill_force_replaces_existing(tmp_path: Path) -> None:
     assert (existing / "SKILL.md").is_file()
 
 
+def test_install_skill_force_removes_legacy_ccc_skill(tmp_path: Path) -> None:
+    target_dir = tmp_path / "skills"
+    legacy = target_dir / "ccc"
+    legacy.mkdir(parents=True)
+    (legacy / "SKILL.md").write_text("old skill\n")
+
+    result = runner.invoke(
+        app,
+        ["install-skill", "--target-dir", str(target_dir), "--force"],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert not legacy.exists()
+    assert (target_dir / "rag4trex" / "SKILL.md").is_file()
+
+
 def test_install_skill_uses_codex_home_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -294,7 +311,7 @@ def test_install_skill_uses_codex_home_env(
     result = runner.invoke(app, ["install-skill"], catch_exceptions=False)
 
     assert result.exit_code == 0, result.output
-    assert (codex_home / "skills" / "ccc" / "SKILL.md").is_file()
+    assert (codex_home / "skills" / "rag4trex" / "SKILL.md").is_file()
 
 
 # ---------------------------------------------------------------------------

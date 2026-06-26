@@ -1,7 +1,7 @@
 {
   "name": "rag4trex",
   "version": "1.0.0",
-  "description": "Repository RAG for code and Markdown docs via MCP tools. Bundles the ccc skill and optional MCP configuration.",
+  "description": "Repository RAG for code and Markdown docs via MCP tools. Bundles the rag4trex skill and optional MCP configuration.",
   "author": {
     "name": "rag4trex",
     "email": ""

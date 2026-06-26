@@ -53,7 +53,7 @@ Next, set up your [coding agent integration](#coding-agent-integration) — or j
 
 ## Coding Agent Integration
 
-This repository is a **single plugin marketplace** (`.claude-plugin/marketplace.json`) consumed by both **Claude Code** and **Grok** — same plugin id `rag4trex`, same `ccc` skill. Grok optionally activates the bundled hooks and MCP server with `--trust`; Claude Code users can install the same marketplace and rely on the skill alone or load hooks/MCP from the plugin as needed.
+This repository is a **single plugin marketplace** (`.claude-plugin/marketplace.json`) consumed by both **Claude Code** and **Grok** — same plugin id `rag4trex`, same `rag4trex` skill. Grok optionally activates the bundled hooks and MCP server with `--trust`; Claude Code users can install the same marketplace and rely on the skill alone or load hooks/MCP from the plugin as needed.
 
 ### Skill (Recommended)
 
@@ -67,7 +67,7 @@ codex mcp add rag4trex -- rag4trex mcp
 ```
 
 Use `rag4trex install-skill --force` to replace an existing local copy. By default
-the command installs to `$CODEX_HOME/skills/ccc`, or `~/.codex/skills/ccc` when
+the command installs to `$CODEX_HOME/skills/rag4trex`, or `~/.codex/skills/rag4trex` when
 `CODEX_HOME` is unset. For custom layouts:
 
 ```bash
@@ -80,9 +80,9 @@ The skill teaches Codex when to use the provided MCP tools:
 `get_index_status`. Configure the MCP server with `codex mcp add ...` so those
 tools are available to the agent.
 
-The agent uses semantic search automatically when it would be helpful. You can also nudge it explicitly — just ask it to search the codebase, e.g. *"find how user sessions are managed"*, or type `/ccc` to invoke the skill directly.
+The agent uses semantic search automatically when it would be helpful. You can also nudge it explicitly — just ask it to search the codebase, e.g. *"find how user sessions are managed"*, or type `/rag4trex` to invoke the skill directly.
 
-For repository/plugin marketplace installs, the root `skills/ccc/` directory
+For repository/plugin marketplace installs, the root `skills/rag4trex/` directory
 contains the same skill files.
 
 #### Claude Code plugin marketplace
@@ -94,7 +94,7 @@ For Claude Code users, this repository is also a [plugin marketplace](https://co
 /plugin install rag4trex@rag4trex
 ```
 
-This bundles the same `ccc` skill, with version pinning and `/plugin marketplace update` for updates. The repository also ships `hooks/hooks.json` and `.mcp.json` for Grok (and Claude Code plugin installs that load those files); Claude users who want skill-only search can rely on the skill alone and add MCP manually in the [MCP Server](#mcp-server) section below instead of using the bundled `.mcp.json`.
+This bundles the same `rag4trex` skill, with version pinning and `/plugin marketplace update` for updates. The repository also ships `hooks/hooks.json` and `.mcp.json` for Grok (and Claude Code plugin installs that load those files); Claude users who want skill-only search can rely on the skill alone and add MCP manually in the [MCP Server](#mcp-server) section below instead of using the bundled `.mcp.json`.
 
 #### Grok plugin
 
@@ -102,7 +102,7 @@ For [Grok](https://github.com/xai-org/grok) users, install via Grok's plugin sys
 
 | Component | Purpose |
 |-----------|---------|
-| **Skill** (`skills/ccc/`) | Agent uses the provided MCP tools for RAG discovery and location |
+| **Skill** (`skills/rag4trex/`) | Agent uses the provided MCP tools for RAG discovery and location |
 | **Hook** (`hooks/hooks.json`) | `SessionStart` → incremental `ccc index` when `.cocoindex_code/` exists |
 | **MCP** (`.mcp.json`) | `rag4trex mcp` stdio server — `search` tool with `refresh_index=true` by default |
 
@@ -132,7 +132,7 @@ Install and enable as above, then disable the optional components:
 enabled = false
 ```
 
-The agent still uses the `ccc` skill for RAG discovery decisions, and the skill calls the configured MCP tools rather than shelling out to CLI search commands.
+The agent still uses the `rag4trex` skill for RAG discovery decisions, and the skill calls the configured MCP tools rather than shelling out to CLI search commands.
 
 To avoid importing MCP servers from your Claude/Cursor user config (unrelated to this plugin):
 

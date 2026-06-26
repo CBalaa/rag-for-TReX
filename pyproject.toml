@@ -78,7 +78,7 @@ version-file = "src/cocoindex_code/_version.py"
 packages = ["src/cocoindex_code"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"skills/ccc" = "src/cocoindex_code/resources/skills/ccc"
+"skills/rag4trex" = "src/cocoindex_code/resources/skills/rag4trex"
 
 [tool.hatch.build.targets.sdist]
 include = ["/src", "/README.md", "/LICENSE", "/skills"]

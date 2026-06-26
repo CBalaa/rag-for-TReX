@@ -155,32 +155,33 @@ def _catch_daemon_start_error(func: _F) -> _F:
 
 @contextmanager
 def _skill_source_path() -> Iterator[Path]:
-    """Yield the bundled ccc skill directory.
+    """Yield the bundled rag4trex skill directory.
 
     Wheels include the skill as package data. Source checkouts use the root
-    ``skills/ccc`` directory so contributors do not need to keep a copied
+    ``skills/rag4trex`` directory so contributors do not need to keep a copied
     package-resource tree in sync by hand.
     """
-    packaged = importlib.resources.files("cocoindex_code").joinpath("resources/skills/ccc")
+    packaged = importlib.resources.files("cocoindex_code").joinpath("resources/skills/rag4trex")
     with importlib.resources.as_file(packaged) as packaged_path:
         if packaged_path.is_dir():
             yield packaged_path
             return
 
-    checkout_path = Path(__file__).resolve().parents[2] / "skills" / "ccc"
+    checkout_path = Path(__file__).resolve().parents[2] / "skills" / "rag4trex"
     if checkout_path.is_dir():
         yield checkout_path
         return
 
-    raise FileNotFoundError("bundled ccc skill directory was not found")
+    raise FileNotFoundError("bundled rag4trex skill directory was not found")
 
 
-def _remove_existing_skill_dir(path: Path) -> None:
+def _remove_existing_skill_dir(path: Path, *, allowed_names: set[str] | None = None) -> None:
     """Remove an existing skill install target after a narrow safety check."""
+    allowed = allowed_names or {"rag4trex"}
     if not path.exists():
         return
-    if path.name != "ccc":
-        raise ValueError(f"Refusing to remove non-ccc path: {path}")
+    if path.name not in allowed:
+        raise ValueError(f"Refusing to remove unexpected skill path: {path}")
     if path.is_dir():
         shutil.rmtree(path)
         return
@@ -703,7 +704,7 @@ def install_skill(
         False,
         "-f",
         "--force",
-        help="Overwrite an existing ccc skill install.",
+        help="Overwrite an existing rag4trex skill install.",
     ),
     codex_home: Path | None = _typer.Option(
         None,
@@ -716,7 +717,7 @@ def install_skill(
         help="Install into this skills directory instead of CODEX_HOME/skills.",
     ),
 ) -> None:
-    """Install the bundled ccc Codex skill into the local Codex skills directory."""
+    """Install the bundled rag4trex Codex skill into the local Codex skills directory."""
     if target_dir is not None and codex_home is not None:
         _typer.echo("Error: pass either --target-dir or --codex-home, not both.", err=True)
         raise _typer.Exit(code=1)
@@ -727,7 +728,8 @@ def install_skill(
     else:
         target_dir = target_dir.expanduser()
 
-    destination = target_dir / "ccc"
+    destination = target_dir / "rag4trex"
+    legacy_destination = target_dir / "ccc"
     if destination.exists() and not force:
         _typer.echo(
             f"Error: skill already exists at {format_path_for_display(destination)}.\n"
@@ -741,12 +743,13 @@ def install_skill(
             target_dir.mkdir(parents=True, exist_ok=True)
             if force:
                 _remove_existing_skill_dir(destination)
+                _remove_existing_skill_dir(legacy_destination, allowed_names={"ccc"})
             shutil.copytree(source, destination)
     except OSError as e:
-        _typer.echo(f"Error: failed to install ccc skill: {e}", err=True)
+        _typer.echo(f"Error: failed to install rag4trex skill: {e}", err=True)
         raise _typer.Exit(code=1)
 
-    _typer.echo(f"Installed ccc skill to {format_path_for_display(destination)}")
+    _typer.echo(f"Installed rag4trex skill to {format_path_for_display(destination)}")
 
 
 @app.command()
