@@ -624,8 +624,8 @@ def _user_settings_from_dict(d: dict[str, Any]) -> UserSettings:
     )
     if rerank.enabled and not rerank.model:
         raise ValueError("rerank.enabled is true but rerank.model is missing")
-    if rerank.provider != "litellm":
-        raise ValueError("Only rerank.provider: litellm is currently supported")
+    if rerank.provider not in {"litellm", "zhipu", "glm"}:
+        raise ValueError("rerank.provider must be one of: litellm, zhipu")
     if rerank.top_n < 1:
         raise ValueError("rerank.top_n must be >= 1")
     envs = d.get("envs", {})
@@ -785,7 +785,7 @@ _INITIAL_RERANK_COMMENT = (
     "#\n"
     "# rerank:\n"
     "#   enabled: true\n"
-    "#   provider: litellm\n"
+    "#   provider: litellm  # or zhipu\n"
     "#   model: cohere/rerank-v3.5\n"
     "#   top_n: 50\n"
     "#   min_interval_ms: 300\n"

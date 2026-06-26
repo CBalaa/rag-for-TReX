@@ -647,7 +647,32 @@ Rerank output appears in search hits:
 }
 ```
 
-Only `provider: litellm` is currently supported for reranking. If reranking is disabled, `rerank_score` remains `null` and vector similarity remains the final score.
+Supported rerank providers are `litellm` and `zhipu`. If reranking is disabled, `rerank_score` remains `null` and vector similarity remains the final score.
+
+Zhipu / GLM embedding uses Zhipu's OpenAI-compatible embedding endpoint. Zhipu / GLM rerank uses Zhipu's native `/v4/rerank` endpoint:
+
+```yaml
+embedding:
+  provider: litellm
+  model: openai/embedding-3
+  min_interval_ms: 300
+
+rerank:
+  enabled: true
+  provider: zhipu
+  model: rerank-pro
+  top_n: 50
+  min_interval_ms: 300
+  params:
+    base_url: https://open.bigmodel.cn/api/paas/v4/
+
+envs:
+  OPENAI_API_KEY: your-zhipu-api-key
+  OPENAI_API_BASE: https://open.bigmodel.cn/api/paas/v4/
+  ZHIPUAI_API_KEY: your-zhipu-api-key
+```
+
+Use the exact rerank model name shown in your Zhipu console.
 
 #### `indexing_params` / `query_params`
 
