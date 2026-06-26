@@ -166,7 +166,7 @@ def test_daemon_starts_in_no_settings_mode_without_global_settings() -> None:
         from cocoindex_code.protocol import ErrorResponse
 
         assert isinstance(resp, ErrorResponse)
-        assert "ccc init" in resp.message
+        assert "rag4trex init" in resp.message
     finally:
         _stop()
         if old_env is None:

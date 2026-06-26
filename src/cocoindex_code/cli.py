@@ -1,4 +1,4 @@
-"""CLI entry point for cocoindex-code (ccc command)."""
+"""CLI entry point for rag4trex."""
 
 from __future__ import annotations
 
@@ -33,6 +33,7 @@ from .settings import (
     EmbeddingSettings,
     cocoindex_db_path,
     default_project_settings,
+    default_user_settings,
     existing_project_settings_path,
     find_parent_with_marker,
     find_project_root,
@@ -43,6 +44,7 @@ from .settings import (
     resolve_db_dir,
     save_initial_user_settings,
     save_project_settings,
+    save_user_settings,
     target_sqlite_db_path,
     user_settings_path,
 )
@@ -107,6 +109,25 @@ def require_project_root() -> Path:
             err=True,
         )
         raise _typer.Exit(code=1)
+    return root
+
+
+def ensure_mcp_project_root() -> Path:
+    """Return a project root for MCP without writing project-local files.
+
+    MCP servers must not print setup prompts on stdout before the JSON-RPC
+    handshake. Creating user-level defaults is safe; creating ``.rag4trex.yml``
+    in arbitrary new repositories is not, so uninitialized directories are
+    returned as-is and tool calls surface structured configuration errors.
+    """
+    user_path = user_settings_path()
+    if not user_path.is_file():
+        save_user_settings(default_user_settings())
+
+    cwd = Path.cwd().resolve()
+    root = find_project_root(cwd)
+    if root is None:
+        return cwd
     return root
 
 
@@ -426,7 +447,7 @@ def _resolve_embedding_choice(
             return EmbeddingSettings(provider="sentence-transformers", model=DEFAULT_ST_MODEL)
         _typer.echo(
             "Error: sentence-transformers is not installed and stdin is not a TTY.\n"
-            "Either install the extra (`pip install 'cocoindex-code[embeddings-local]'`)\n"
+            "Either install the extra (`pip install 'rag4trex[embeddings-local]'`)\n"
             "or pass `--litellm-model MODEL` to select a LiteLLM model.",
             err=True,
         )
@@ -453,7 +474,7 @@ def _resolve_embedding_choice(
     else:
         _typer.echo(
             "sentence-transformers is not installed — only `litellm` is available.\n"
-            "To enable local embeddings, install `cocoindex-code[embeddings-local]`."
+            "To enable local embeddings, install `rag4trex[embeddings-local]`."
         )
         provider = "litellm"
 
@@ -631,7 +652,7 @@ def init(
     ),
     force: bool = _typer.Option(False, "-f", "--force", help="Skip parent directory warning"),
 ) -> None:
-    """Initialize a project for cocoindex-code."""
+    """Initialize a project for rag4trex."""
     cwd = Path.cwd().resolve()
     settings_file = project_settings_path(cwd)
 
@@ -1399,7 +1420,7 @@ def mcp() -> None:
     """Run as MCP server (stdio mode)."""
     import asyncio
 
-    project_root = str(require_project_root())
+    project_root = str(ensure_mcp_project_root())
 
     async def _run_mcp() -> None:
         from .server import create_mcp_server

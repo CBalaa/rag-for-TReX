@@ -155,7 +155,7 @@ class ProjectRegistry:
         """Get or create a Project for the given root. Lazy initialization."""
         if self._embedder is None:
             raise RuntimeError(
-                "Daemon has no global settings loaded. Run `ccc init` to set up cocoindex-code."
+                "Daemon has no global settings loaded. Run `rag4trex init` to set up rag4trex."
             )
         if project_root not in self._projects:
             root = Path(project_root)

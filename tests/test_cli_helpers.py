@@ -11,6 +11,7 @@ from cocoindex_code import cli
 from cocoindex_code.cli import (
     add_to_gitignore,
     app,
+    ensure_mcp_project_root,
     remove_from_gitignore,
     require_project_root,
     resolve_default_path,
@@ -62,6 +63,20 @@ def test_require_project_root_exits_when_not_initialized(
 
     with pytest.raises(Exit):
         require_project_root()
+
+
+def test_ensure_mcp_project_root_creates_only_user_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    settings_dir = tmp_path / "ccc_home"
+    monkeypatch.setenv("COCOINDEX_CODE_DIR", str(settings_dir))
+    monkeypatch.chdir(project)
+
+    assert ensure_mcp_project_root() == project
+    assert (settings_dir / "global_settings.yml").is_file()
+    assert not (project / ".rag4trex.yml").exists()
 
 
 def test_resolve_default_path_from_subdirectory(

@@ -3,7 +3,7 @@
 Supports two modes:
 1. Daemon-backed: ``create_mcp_server(client, project_root)`` — lightweight MCP
    server that delegates to the daemon via per-request client functions.
-2. Legacy entry point: ``main()`` — backward-compatible ``cocoindex-code`` CLI that
+2. Legacy entry point: ``main()`` — backward-compatible server entry point that
    auto-creates settings from env vars and delegates to the daemon.
 """
 
@@ -106,7 +106,7 @@ class FileRangeResultModel(BaseModel):
 
 def create_mcp_server(project_root: str) -> FastMCP:
     """Create a lightweight MCP server that delegates to the daemon."""
-    mcp = FastMCP("cocoindex-code", instructions=_MCP_INSTRUCTIONS)
+    mcp = FastMCP("rag4trex", instructions=_MCP_INSTRUCTIONS)
 
     @mcp.tool(
         name="search",
@@ -399,7 +399,7 @@ def _convert_embedding_model(env_model: str) -> tuple[str, str]:
 
 
 def main() -> None:
-    """Backward-compatible entry point for ``cocoindex-code`` CLI.
+    """Backward-compatible entry point for the MCP server CLI.
 
     Auto-detects/creates settings from env vars, then delegates to daemon.
     """
@@ -419,7 +419,7 @@ def main() -> None:
     )
 
     parser = argparse.ArgumentParser(
-        prog="cocoindex-code",
+        prog="rag4trex",
         description="MCP server for codebase indexing and querying.",
     )
     subparsers = parser.add_subparsers(dest="command")
