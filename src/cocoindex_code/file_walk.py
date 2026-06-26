@@ -16,7 +16,7 @@ from pathlib import Path, PurePath
 from cocoindex.resources.file import FilePathMatcher, PatternFilePathMatcher
 from pathspec import GitIgnoreSpec
 
-from .settings import load_gitignore_spec
+from .settings import FORCED_EXCLUDED_PATTERNS, load_gitignore_spec, load_ignore_spec
 
 
 def _normalize_gitignore_lines(lines: Iterable[str], directory: PurePath) -> list[str]:
@@ -120,6 +120,32 @@ class GitignoreAwareMatcher(FilePathMatcher):
         return self._delegate.is_file_included(path)
 
 
+class SpecAwareMatcher(FilePathMatcher):
+    """Wrap a matcher and exclude paths matching a root-relative GitIgnoreSpec."""
+
+    def __init__(self, delegate: FilePathMatcher, spec: GitIgnoreSpec | None) -> None:
+        self._delegate = delegate
+        self._spec = spec
+
+    def _is_ignored(self, path: PurePath, is_dir: bool) -> bool:
+        if self._spec is None:
+            return False
+        match_path = path.as_posix()
+        if is_dir and not match_path.endswith("/"):
+            match_path = f"{match_path}/"
+        return self._spec.match_file(match_path)
+
+    def is_dir_included(self, path: PurePath) -> bool:
+        if self._is_ignored(path, True):
+            return False
+        return self._delegate.is_dir_included(path)
+
+    def is_file_included(self, path: PurePath) -> bool:
+        if self._is_ignored(path, False):
+            return False
+        return self._delegate.is_file_included(path)
+
+
 def find_git_root(start: Path) -> Path | None:
     """Walk up from ``start`` to the nearest directory holding a ``.git`` entry — a
     directory for a normal repo, or a *file* for a submodule or linked worktree.
@@ -140,14 +166,113 @@ def build_matcher(
     project_root: Path,
     included_patterns: list[str],
     excluded_patterns: list[str],
+    forced_excluded_patterns: list[str] | None = None,
+    ragignore_file: str = ".ragignore",
 ) -> FilePathMatcher:
     """Build the project's file matcher: include/exclude globs plus nested
     ``.gitignore`` awareness anchored at ``project_root``."""
     base_matcher = PatternFilePathMatcher(
         included_patterns=included_patterns,
-        excluded_patterns=excluded_patterns,
+        excluded_patterns=[
+            *excluded_patterns,
+            *(forced_excluded_patterns or FORCED_EXCLUDED_PATTERNS),
+        ],
     )
-    return GitignoreAwareMatcher(base_matcher, load_gitignore_spec(project_root), project_root)
+    matcher: FilePathMatcher = GitignoreAwareMatcher(
+        base_matcher, load_gitignore_spec(project_root), project_root
+    )
+    return SpecAwareMatcher(matcher, load_ignore_spec(project_root, ragignore_file))
+
+
+def build_docs_matcher(project_root: Path) -> FilePathMatcher:
+    """Build matcher for documentation files using docs settings and ignore files."""
+    from .settings import load_project_settings
+
+    ps = load_project_settings(project_root)
+    return build_matcher(
+        project_root,
+        ps.docs_include_patterns,
+        ps.docs_exclude_patterns,
+        forced_excluded_patterns=ps.always_exclude,
+        ragignore_file=ps.scan.ragignore_file,
+    )
+
+
+def explain_path(
+    project_root: Path,
+    path: str | Path,
+    *,
+    index_type: str = "code",
+) -> dict[str, object]:
+    """Explain whether a path is included in a code/docs index and why."""
+    from pathspec import GitIgnoreSpec
+
+    from .settings import load_project_settings
+
+    ps = load_project_settings(project_root)
+    rel = Path(path)
+    if rel.is_absolute():
+        rel = rel.resolve().relative_to(project_root.resolve())
+    rel_posix = rel.as_posix()
+    is_dir = (project_root / rel).is_dir()
+    match_path = f"{rel_posix}/" if is_dir and not rel_posix.endswith("/") else rel_posix
+    if index_type == "docs":
+        include = ps.docs_include_patterns
+        exclude = ps.docs_exclude_patterns
+    else:
+        include = ps.include_patterns
+        exclude = ps.exclude_patterns
+
+    def matched(patterns: list[str]) -> list[str]:
+        return [
+            pattern
+            for pattern in patterns
+            if GitIgnoreSpec.from_lines([pattern]).match_file(match_path)
+        ]
+
+    always_matches = matched(ps.always_exclude)
+    exclude_matches = matched(exclude)
+    include_matches = matched(include)
+    git_spec = load_gitignore_spec(project_root)
+    gitignored = bool(git_spec and git_spec.match_file(match_path))
+    rag_spec = load_ignore_spec(project_root, ps.scan.ragignore_file)
+    ragignored = bool(rag_spec and rag_spec.match_file(match_path))
+
+    matcher = build_matcher(
+        project_root,
+        include,
+        exclude,
+        forced_excluded_patterns=ps.always_exclude,
+        ragignore_file=ps.scan.ragignore_file,
+    )
+    rel_pure = PurePath(rel_posix)
+    included = matcher.is_dir_included(rel_pure) if is_dir else matcher.is_file_included(rel_pure)
+    reasons: list[str] = []
+    if always_matches:
+        reasons.append("always_exclude")
+    if gitignored:
+        reasons.append(".gitignore")
+    if ragignored:
+        reasons.append(ps.scan.ragignore_file)
+    if exclude_matches:
+        reasons.append("exclude")
+    if not include_matches:
+        reasons.append("no_include_match")
+    if included:
+        reasons.append("included")
+    return {
+        "path": rel_posix,
+        "index": index_type,
+        "included": included,
+        "reasons": reasons,
+        "matches": {
+            "include": include_matches,
+            "exclude": exclude_matches,
+            "always_exclude": always_matches,
+            "gitignore": gitignored,
+            "ragignore": ragignored,
+        },
+    }
 
 
 def iter_included_files(

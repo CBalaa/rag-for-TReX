@@ -41,13 +41,17 @@ from .protocol import (
     HandshakeRequest,
     HandshakeResponse,
     IndexRequest,
+    IndexResponse,
     IndexStreamResponse,
     IndexWaitingNotice,
     ProjectStatusRequest,
     RemoveProjectRequest,
     RemoveProjectResponse,
+    RepoSearchResponse,
     Request,
     Response,
+    SearchDocsRequest,
+    SearchRepoRequest,
     SearchRequest,
     SearchResponse,
     SearchStreamResponse,
@@ -56,6 +60,7 @@ from .protocol import (
     decode_request,
     encode_response,
 )
+from .reranker import Reranker, create_reranker
 from .settings import (
     ChunkerMapping,
     UserSettings,
@@ -129,17 +134,20 @@ class ProjectRegistry:
 
     _projects: dict[str, Project]
     _embedder: Embedder | None
+    _reranker: Reranker | None
     indexing_params: dict[str, Any]
     query_params: dict[str, Any]
 
     def __init__(
         self,
         embedder: Embedder | None,
+        reranker: Reranker | None = None,
         indexing_params: dict[str, Any] | None = None,
         query_params: dict[str, Any] | None = None,
     ) -> None:
         self._projects = {}
         self._embedder = embedder
+        self._reranker = reranker
         self.indexing_params = dict(indexing_params) if indexing_params else {}
         self.query_params = dict(query_params) if query_params else {}
 
@@ -158,6 +166,7 @@ class ProjectRegistry:
                 self._embedder,
                 indexing_params=self.indexing_params,
                 query_params=self.query_params,
+                reranker=self._reranker,
                 chunker_registry=chunker_registry,
             )
             self._projects[project_root] = project
@@ -288,6 +297,56 @@ async def _search_with_wait(
             results=results,
             total_returned=len(results),
             offset=req.offset,
+            query=req.query,
+            mode=req.mode,
+            top_k=req.limit,
+        )
+    except Exception as e:
+        yield ErrorResponse(message=str(e))
+
+
+async def _search_docs_with_wait(
+    project: Project, req: SearchDocsRequest
+) -> AsyncIterator[SearchStreamResponse]:
+    yield IndexWaitingNotice()
+    await project.wait_for_indexing_done("docs")
+    try:
+        yield await project.search_docs(
+            query=req.query,
+            path_prefix=req.path_prefix,
+            limit=req.limit,
+            offset=req.offset,
+            mode=req.mode,
+        )
+    except Exception as e:
+        yield ErrorResponse(message=str(e))
+
+
+async def _search_repo_with_wait(
+    project: Project, req: SearchRepoRequest
+) -> AsyncIterator[SearchStreamResponse]:
+    yield IndexWaitingNotice()
+    if req.content_type in (None, "code"):
+        await project.wait_for_indexing_done("code")
+    if req.content_type in (None, "docs", "documentation"):
+        await project.wait_for_indexing_done("docs")
+    try:
+        hits = await project.search_repo(
+            query=req.query,
+            content_type=req.content_type,
+            path_prefix=req.path_prefix,
+            limit=req.limit,
+            offset=req.offset,
+        )
+        yield RepoSearchResponse(
+            success=True,
+            query=req.query,
+            hits=hits,
+            total_returned=len(hits),
+            offset=req.offset,
+            mode=req.mode,
+            index="repo" if req.content_type is None else req.content_type,
+            top_k=req.limit,
         )
     except Exception as e:
         yield ErrorResponse(message=str(e))
@@ -381,7 +440,13 @@ async def _check_file_walk(project_root_str: str) -> DoctorCheckResult:
     except FileNotFoundError as e:
         return DoctorCheckResult(name="File Walk", ok=False, details=[], errors=[str(e)])
 
-    matcher = build_matcher(project_root, ps.include_patterns, ps.exclude_patterns)
+    matcher = build_matcher(
+        project_root,
+        ps.include_patterns,
+        ps.exclude_patterns,
+        forced_excluded_patterns=ps.always_exclude,
+        ragignore_file=ps.scan.ragignore_file,
+    )
 
     counts_by_ext: dict[str, int] = {}
     gitignore_dirs: list[str] = []
@@ -433,13 +498,31 @@ async def _check_index_status(project_root_str: str) -> DoctorCheckResult:
         conn = coco_sqlite.connect(str(db_path), load_vec=True)
         try:
             with conn.readonly() as db:
-                total_chunks = db.execute("SELECT COUNT(*) FROM code_chunks_vec").fetchone()[0]
-                file_rows = db.execute("SELECT DISTINCT file_path FROM code_chunks_vec").fetchall()
-                total_files = len(file_rows)
-                lang_rows = db.execute(
-                    "SELECT language, COUNT(*) FROM code_chunks_vec GROUP BY language"
-                ).fetchall()
-                languages = {row[0]: row[1] for row in lang_rows}
+                try:
+                    total_chunks = db.execute("SELECT COUNT(*) FROM code_chunks_vec").fetchone()[0]
+                    file_rows = db.execute(
+                        "SELECT DISTINCT file_path FROM code_chunks_vec"
+                    ).fetchall()
+                    total_files = len(file_rows)
+                    lang_rows = db.execute(
+                        "SELECT language, COUNT(*) FROM code_chunks_vec GROUP BY language"
+                    ).fetchall()
+                    languages = {row[0]: row[1] for row in lang_rows}
+                except Exception:
+                    total_chunks = 0
+                    total_files = 0
+                    languages = {}
+                try:
+                    docs_total_chunks = db.execute(
+                        "SELECT COUNT(*) FROM docs_chunks_vec"
+                    ).fetchone()[0]
+                    docs_file_rows = db.execute(
+                        "SELECT DISTINCT file_path FROM docs_chunks_vec"
+                    ).fetchall()
+                    docs_total_files = len(docs_file_rows)
+                except Exception:
+                    docs_total_chunks = 0
+                    docs_total_files = 0
         finally:
             conn.close()
 
@@ -449,6 +532,8 @@ async def _check_index_status(project_root_str: str) -> DoctorCheckResult:
             details.append("Languages:")
             for lang, count in sorted(languages.items(), key=lambda x: -x[1]):
                 details.append(f"  {lang}: {count} chunks")
+        details.append(f"Docs chunks: {docs_total_chunks}")
+        details.append(f"Docs files: {docs_total_files}")
         return DoctorCheckResult(name="Index Status", ok=True, details=details, errors=[])
     except Exception as e:
         return DoctorCheckResult(name="Index Status", ok=False, details=details, errors=[str(e)])
@@ -474,11 +559,32 @@ async def _dispatch(
     try:
         if isinstance(req, IndexRequest):
             project = await registry.get_project(req.project_root)
-            return project.stream_index()
+            if req.index_type == "all":
+                async def _all() -> AsyncIterator[IndexStreamResponse]:
+                    async for resp in project.stream_index("code"):
+                        if isinstance(resp, IndexResponse):
+                            if not resp.success:
+                                yield resp
+                                return
+                            continue
+                        yield resp
+                    async for resp in project.stream_index("docs"):
+                        if isinstance(resp, IndexResponse):
+                            if not resp.success:
+                                yield resp
+                                return
+                            continue
+                        yield resp
+                    yield IndexResponse(success=True)
+
+                return _all()
+            if req.index_type not in {"code", "docs"}:
+                return ErrorResponse(message=f"Unknown index type: {req.index_type}")
+            return project.stream_index(req.index_type)
 
         if isinstance(req, SearchRequest):
             project = await registry.get_project(req.project_root)
-            await project.ensure_indexing_started()
+            await project.ensure_indexing_started("code")
 
             if project.should_wait_for_indexing:
                 return _search_with_wait(project, req)
@@ -495,6 +601,54 @@ async def _dispatch(
                 results=results,
                 total_returned=len(results),
                 offset=req.offset,
+                query=req.query,
+                mode=req.mode,
+                top_k=req.limit,
+            )
+
+        if isinstance(req, SearchDocsRequest):
+            project = await registry.get_project(req.project_root)
+            await project.ensure_indexing_started("docs")
+            if project.should_wait_for_docs_indexing:
+                return _search_docs_with_wait(project, req)
+            return await project.search_docs(
+                query=req.query,
+                path_prefix=req.path_prefix,
+                limit=req.limit,
+                offset=req.offset,
+                mode=req.mode,
+            )
+
+        if isinstance(req, SearchRepoRequest):
+            project = await registry.get_project(req.project_root)
+            if req.content_type in (None, "code"):
+                await project.ensure_indexing_started("code")
+            if req.content_type in (None, "docs", "documentation"):
+                await project.ensure_indexing_started("docs")
+            if (
+                (req.content_type in (None, "code") and project.should_wait_for_indexing)
+                or (
+                    req.content_type in (None, "docs", "documentation")
+                    and project.should_wait_for_docs_indexing
+                )
+            ):
+                return _search_repo_with_wait(project, req)
+            hits = await project.search_repo(
+                query=req.query,
+                content_type=req.content_type,
+                path_prefix=req.path_prefix,
+                limit=req.limit,
+                offset=req.offset,
+            )
+            return RepoSearchResponse(
+                success=True,
+                query=req.query,
+                hits=hits,
+                total_returned=len(hits),
+                offset=req.offset,
+                mode=req.mode,
+                index="repo" if req.content_type is None else req.content_type,
+                top_k=req.limit,
             )
 
         if isinstance(req, ProjectStatusRequest):
@@ -564,6 +718,7 @@ def run_daemon() -> None:
     # provider/model picker in `ccc init`.
     settings_mtime_us = global_settings_mtime_us()  # None when file is missing
     embedder: Embedder | None
+    reranker: Reranker | None = None
     indexing_params: dict[str, Any] = {}
     query_params: dict[str, Any] = {}
     handshake_warnings: list[str] = []
@@ -586,6 +741,7 @@ def run_daemon() -> None:
                 _build_backward_compat_warning(user_settings, user_settings_path())
             )
         embedder = create_embedder(user_settings.embedding, indexing_params=indexing_params)
+        reranker = create_reranker(user_settings.rerank)
     else:
         settings_env_keys = []
         embedder = None
@@ -608,6 +764,7 @@ def run_daemon() -> None:
     start_time = time.monotonic()
     registry = ProjectRegistry(
         embedder,
+        reranker=reranker,
         indexing_params=indexing_params,
         query_params=query_params,
     )

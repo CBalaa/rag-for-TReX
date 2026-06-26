@@ -13,15 +13,27 @@ import asyncio
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
+from .rag_schema import (
+    error_envelope,
+    locate_response_to_dict,
+    search_response_to_dict,
+)
+
 _MCP_INSTRUCTIONS = (
-    "Code search and codebase understanding tools."
+    "Code, documentation, and repository understanding tools."
     "\n"
     "Use when you need to find code, understand how something works,"
-    " locate implementations, or explore an unfamiliar codebase."
+    " locate implementations, find documentation, or explore an unfamiliar codebase."
+    "\n"
+    "RAG search is for fuzzy semantic discovery. Repository text search is better"
+    " for exact strings, function names, config keys, and error codes. File reading"
+    " is required for current authoritative contents before modifying code or docs."
+    " Never modify vector database chunks directly."
     "\n"
     "Provides semantic search that understands meaning --"
     " unlike grep or text matching,"
@@ -50,6 +62,42 @@ class SearchResultModel(BaseModel):
     results: list[CodeChunkResult] = Field(default_factory=list)
     total_returned: int = Field(default=0)
     offset: int = Field(default=0)
+    message: str | None = None
+
+
+class RepoSourceModel(BaseModel):
+    path: str
+    line_start: int
+    line_end: int
+    heading: str | None = None
+    heading_path: list[str] = Field(default_factory=list)
+    language: str | None = None
+    content_hash: str | None = None
+    chunk_hash: str | None = None
+
+
+class RepoHitModel(BaseModel):
+    content_type: str
+    score: float
+    content: str
+    source: RepoSourceModel
+
+
+class RepoSearchResultModel(BaseModel):
+    success: bool
+    query: str
+    hits: list[RepoHitModel] = Field(default_factory=list)
+    total_returned: int = 0
+    offset: int = 0
+    message: str | None = None
+
+
+class FileRangeResultModel(BaseModel):
+    success: bool
+    path: str
+    line_start: int
+    line_end: int
+    content: str = ""
     message: str | None = None
 
 
@@ -117,7 +165,14 @@ def create_mcp_server(project_root: str) -> FastMCP:
                 " Example: ['src/utils/*', '*.py']"
             ),
         ),
-    ) -> SearchResultModel:
+        mode: str = Field(
+            default="semantic",
+            description=(
+                "Search mode. Currently semantic is implemented; hybrid/keyword"
+                " are accepted for schema stability."
+            ),
+        ),
+    ) -> dict[str, Any]:
         """Query the codebase index via the daemon."""
         from . import client as _client
 
@@ -134,27 +189,196 @@ def create_mcp_server(project_root: str) -> FastMCP:
                     paths=paths,
                     limit=limit,
                     offset=offset,
+                    mode=mode,
                 ),
             )
-            return SearchResultModel(
-                success=resp.success,
-                results=[
-                    CodeChunkResult(
-                        file_path=r.file_path,
-                        language=r.language,
-                        content=r.content,
-                        start_line=r.start_line,
-                        end_line=r.end_line,
-                        score=r.score,
-                    )
-                    for r in resp.results
-                ],
-                total_returned=resp.total_returned,
-                offset=resp.offset,
-                message=resp.message,
-            )
+            return search_response_to_dict(resp, index="code")
         except Exception as e:
-            return SearchResultModel(success=False, message=f"Query failed: {e!s}")
+            return error_envelope("CONFIG_INVALID", f"Query failed: {e!s}", {"query": query})
+
+    @mcp.tool(
+        name="search_code",
+        description="Semantic code search returning repo-rag-search-v1 JSON envelope.",
+    )
+    async def search_code(
+        query: str = Field(description="Natural language query or code snippet."),
+        language: str | None = Field(default=None, description="Optional single language filter."),
+        path_prefix: str | None = Field(default=None, description="Optional relative path prefix."),
+        top_k: int = Field(default=5, ge=1, le=100, description="Maximum results to return"),
+        mode: str = Field(default="semantic", description="Search mode."),
+        refresh_index: bool = Field(
+            default=True,
+            description="Refresh code index before searching.",
+        ),
+    ) -> dict[str, Any]:
+        paths = None
+        if path_prefix:
+            paths = [path_prefix if any(ch in path_prefix for ch in "*?[") else f"{path_prefix}*"]
+        return await search(
+            query=query,
+            limit=top_k,
+            offset=0,
+            refresh_index=refresh_index,
+            languages=[language] if language else None,
+            paths=paths,
+            mode=mode,
+        )
+
+    @mcp.tool(
+        name="search_docs",
+        description=(
+            "Semantic search across Markdown documentation. Use for fuzzy discovery of"
+            " documentation sections. Use shell/editor file reads afterward for"
+            " authoritative current file contents."
+        ),
+    )
+    async def search_docs(
+        query: str = Field(description="Natural language documentation query."),
+        path_prefix: str | None = Field(
+            default=None,
+            description="Optional relative path prefix such as 'docs/' or 'README'.",
+        ),
+        top_k: int = Field(default=5, ge=1, le=100, description="Maximum results to return"),
+        mode: str = Field(default="semantic", description="Search mode."),
+        refresh_index: bool = Field(
+            default=True,
+            description="Whether to incrementally update the docs index before searching.",
+        ),
+    ) -> dict[str, Any]:
+        from . import client as _client
+
+        loop = asyncio.get_event_loop()
+        try:
+            if refresh_index:
+                await loop.run_in_executor(
+                    None, lambda: _client.index(project_root, index_type="docs")
+                )
+            resp = await loop.run_in_executor(
+                None,
+                lambda: _client.search_docs(
+                    project_root=project_root,
+                    query=query,
+                    path_prefix=path_prefix,
+                    limit=top_k,
+                    mode=mode,
+                ),
+            )
+            return search_response_to_dict(resp, index="docs")
+        except Exception as e:
+            return error_envelope("CONFIG_INVALID", f"Query failed: {e!s}", {"query": query})
+
+    @mcp.tool(
+        name="search_repo",
+        description=(
+            "Semantic search across code and docs indexes. Use content_type to limit"
+            " to 'code' or 'docs'. Results are discovery hints, not a replacement for"
+            " reading real files before editing."
+        ),
+    )
+    async def search_repo(
+        query: str = Field(description="Natural language query or code/documentation snippet."),
+        content_type: str | None = Field(
+            default=None,
+            description="Optional filter: 'code' or 'docs'.",
+        ),
+        path_prefix: str | None = Field(default=None, description="Optional relative path prefix."),
+        top_k: int = Field(default=5, ge=1, le=100, description="Maximum results to return"),
+        mode: str = Field(default="semantic", description="Search mode."),
+        refresh_index: bool = Field(
+            default=True,
+            description="Whether to incrementally update relevant indexes before searching.",
+        ),
+    ) -> dict[str, Any]:
+        from . import client as _client
+
+        loop = asyncio.get_event_loop()
+        try:
+            if refresh_index:
+                if content_type in {"docs", "documentation"}:
+                    index_type = "docs"
+                elif content_type == "code":
+                    index_type = "code"
+                else:
+                    index_type = "all"
+                await loop.run_in_executor(
+                    None,
+                    lambda: _client.index(project_root, index_type=index_type),
+                )
+            resp = await loop.run_in_executor(
+                None,
+                lambda: _client.search_repo(
+                    project_root=project_root,
+                    query=query,
+                    content_type=content_type,
+                    path_prefix=path_prefix,
+                    limit=top_k,
+                    mode=mode,
+                ),
+            )
+            index = "repo" if content_type is None else content_type
+            return search_response_to_dict(resp, index=index)
+        except Exception as e:
+            return error_envelope("CONFIG_INVALID", f"Query failed: {e!s}", {"query": query})
+
+    @mcp.tool(
+        name="locate_repo",
+        description="Locate likely files or documentation sections across repository indexes.",
+    )
+    async def locate_repo(
+        query: str = Field(description="Natural language query for what to locate."),
+        content_type: str | None = Field(
+            default=None,
+            description="Optional filter: 'code' or 'docs'.",
+        ),
+        path_prefix: str | None = Field(default=None, description="Optional relative path prefix."),
+        top_k: int = Field(default=5, ge=1, le=100, description="Maximum results to return"),
+    ) -> dict[str, Any]:
+        from . import client as _client
+
+        loop = asyncio.get_event_loop()
+        try:
+            resp = await loop.run_in_executor(
+                None,
+                lambda: _client.search_repo(
+                    project_root=project_root,
+                    query=query,
+                    content_type=content_type,
+                    path_prefix=path_prefix,
+                    limit=top_k,
+                ),
+            )
+            index = "repo" if content_type is None else content_type
+            return locate_response_to_dict(resp, index=index)
+        except Exception as e:
+            return error_envelope("CONFIG_INVALID", f"Locate failed: {e!s}", {"query": query})
+
+    @mcp.tool(
+        name="get_index_status",
+        description="Return structured code/docs index status for the current project.",
+    )
+    async def get_index_status() -> dict[str, Any]:
+        from . import client as _client
+
+        loop = asyncio.get_event_loop()
+        try:
+            resp = await loop.run_in_executor(None, lambda: _client.project_status(project_root))
+            return {
+                "schema_version": "repo-rag-index-status-v1",
+                "indexing": resp.indexing,
+                "code": {
+                    "index_exists": resp.index_exists,
+                    "chunks": resp.total_chunks,
+                    "files": resp.total_files,
+                    "languages": resp.languages,
+                },
+                "docs": {
+                    "index_exists": resp.docs_index_exists,
+                    "chunks": resp.docs_total_chunks,
+                    "files": resp.docs_total_files,
+                },
+            }
+        except Exception as e:
+            return error_envelope("CONFIG_INVALID", f"Status failed: {e!s}")
 
     return mcp
 
@@ -186,9 +410,9 @@ def main() -> None:
         LanguageOverride,
         default_project_settings,
         default_user_settings,
+        existing_project_settings_path,
         find_legacy_project_root,
         find_project_root,
-        project_settings_path,
         save_project_settings,
         save_user_settings,
         user_settings_path,
@@ -218,8 +442,8 @@ def main() -> None:
             project_root = legacy_root if legacy_root is not None else cwd
 
     # --- Auto-create project settings if needed ---
-    proj_settings_file = project_settings_path(project_root)
-    if not proj_settings_file.is_file():
+    proj_settings_file = existing_project_settings_path(project_root)
+    if proj_settings_file is None:
         ps = default_project_settings()
 
         # Migrate COCOINDEX_CODE_EXCLUDED_PATTERNS

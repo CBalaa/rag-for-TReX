@@ -1,71 +1,97 @@
 ---
 name: ccc
-description: "This skill should be used when code search is needed (whether explicitly requested or as part of completing a task), when indexing the codebase after changes, or when the user asks about ccc, cocoindex-code, or the codebase index. Trigger phrases include 'search the codebase', 'find code related to', 'update the index', 'ccc', 'cocoindex-code'."
+description: "Use this skill when repository RAG search or location is needed through the provided MCP tools. Trigger phrases include 'search the codebase', 'find code related to', 'search docs', 'repo RAG', 'locate in repo', 'ccc', 'rag4trex'."
 ---
 
-# ccc - Semantic Code Search & Indexing
+# ccc - MCP-Only Repo RAG
 
-`ccc` is the CLI for CocoIndex Code, providing semantic search over the current codebase and index management.
+Use only the provided MCP tools for RAG discovery and repository location. Do not use the `ccc` CLI from this skill for search, indexing, or locate workflows.
 
-## Ownership
+## MCP Tools
 
-The agent owns the `ccc` lifecycle for the current project — initialization, indexing, and searching. Do not ask the user to perform these steps; handle them automatically.
+Use these MCP tools:
 
-- **Initialization**: If `ccc search` or `ccc index` fails with an initialization error (e.g., "Not in an initialized project directory"), run `ccc init` from the project root directory, then `ccc index` to build the index, then retry the original command.
-- **Index freshness**: Keep the index up to date by running `ccc index` (or `ccc search --refresh`) when the index may be stale — e.g., at the start of a session, or after making significant code changes (new files, refactors, renamed modules). There is no need to re-index between consecutive searches if no code was changed in between.
-- **Installation**: If `ccc` itself is not found (command not found), refer to [management.md](references/management.md) for installation instructions and inform the user.
+- `search_code`: semantic search over code.
+- `search_docs`: semantic search over Markdown documentation.
+- `search_repo`: unified semantic search over code and documentation.
+- `locate_repo`: compact location results for deciding which files/sections to inspect.
+- `get_index_status`: structured code/docs index status.
 
-## Searching the Codebase
+Do not use RAG tools for final source-file reads.
 
-To perform a semantic search:
+## Search Rules
+
+RAG is for fuzzy semantic discovery. Repository text/grep search is for exact strings, function names, class names, config keys, filenames, and error codes. File read is the authority for current contents before trusting or modifying code or docs.
+
+不知道具体要找什么时，使用 RAG。
+
+已经知道函数名、配置项、错误码、文件名时，使用 repository search。
+
+准备相信或修改内容时，读取真实文件。
+
+Never modify RAG database chunks directly.
+
+Do not modify files based only on RAG chunks.
+
+## Tool Selection
+
+Use `search_repo` when the answer may be in either code or docs.
+
+Use `search_docs` when the user asks about documentation, setup, configuration, runbooks, design notes, or Markdown content.
+
+Use `search_code` when the user asks about implementation, symbols, code paths, behavior, or source files.
+
+Use `locate_repo` when you only need candidate file/section locations before deciding what to read next.
+
+Use `get_index_status` when you need to inspect whether code/docs indexes exist and how many files/chunks are indexed.
+
+Use `rg` only for exact string search in real repository files. Do not use `rg` for fuzzy discovery.
+
+## JSON Handling
+
+MCP RAG tools return structured JSON. Treat that JSON as data, not text.
+
+When extracting fields from RAG output, use `jq`.
+
+When validating or formatting JSON, use `python -m json.tool`.
+
+For complex JSON transforms or batch processing, use Python.
+
+Do not parse JSON structure with `rg` or `sed`.
+
+## Real File Confirmation
+
+RAG returns discovery chunks and source locations. Before relying on content for an answer or edit, confirm the current real file contents with the editor's file-reading capability or shell commands such as:
 
 ```bash
-ccc search <query terms>
+nl -ba path/to/file | sed -n '40,90p'
 ```
 
-The query should describe the concept, functionality, or behavior to find, not exact code syntax. For example:
+Use `nl` / `sed` for real file line ranges, not for parsing JSON.
 
-```bash
-ccc search database connection pooling
-ccc search user authentication flow
-ccc search error handling retry logic
-```
+## Index Freshness
 
-### Filtering Results
+Prefer MCP tool calls with `refresh_index=true` for the first RAG search in a task, after file changes, after include/exclude or `.ragignore` changes, or when search results look stale.
 
-- **By language** (`--lang`, repeatable): restrict results to specific languages.
+For repeated searches in the same task with no file changes, use `refresh_index=false` to avoid unnecessary refresh work.
 
-  ```bash
-  ccc search --lang python --lang markdown database schema
-  ```
+Let the underlying incremental indexer decide which files are added, changed, deleted, or unchanged. Do not manually infer exact staleness for every file.
 
-- **By path** (`--path`): restrict results to a glob pattern relative to project root. If omitted, defaults to the current working directory (only results under that subdirectory are returned).
+## Expected Search Output
 
-  ```bash
-  ccc search --path 'src/api/*' request validation
-  ```
+Search tools return `repo-rag-search-v1` JSON with hits containing:
 
-### Pagination
+- `content`
+- `content_type`
+- `score`
+- `score_details`
+- `source.path`
+- `source.line_start`
+- `source.line_end`
+- `source.heading` for documentation
+- `source.symbol` for code when available
+- `source.content_hash`
+- `source.chunk_hash`
+- `metadata`
 
-Results default to the first page. To retrieve additional results:
-
-```bash
-ccc search --offset 5 --limit 5 database schema
-```
-
-If all returned results look relevant, use `--offset` to fetch the next page — there are likely more useful matches beyond the first page.
-
-### Working with Search Results
-
-Search results include file paths and line ranges. To explore a result in more detail:
-
-- Use the editor's built-in file reading capabilities (e.g., the `Read` tool) to load the matched file and read lines around the returned range for full context.
-- When working in a terminal without a file-reading tool, use `sed -n '<start>,<end>p' <file>` to extract a specific line range.
-
-## Settings
-
-To view or edit embedding model configuration, include/exclude patterns, or language overrides, see [settings.md](references/settings.md).
-
-## Management & Troubleshooting
-
-For installation, initialization, daemon management, troubleshooting, and cleanup commands, see [management.md](references/management.md).
+Locate returns `repo-rag-locate-v1` JSON with compact location-oriented hits.

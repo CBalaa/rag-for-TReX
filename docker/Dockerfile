@@ -17,12 +17,12 @@
 # Per-release layers (invalidate when the source tree changes):
 #   6. COPY . /ccc-src — build context (~MB).
 #   7. `uv pip install "cocoindex>=..." "${CCC_INSTALL_SPEC}"` — installs
-#      cocoindex + cocoindex-code + any of their deps not already in place
+#      cocoindex + rag4trex + any of their deps not already in place
 #      from layer 3. Per-release layer size is bounded by what cocoindex +
-#      cocoindex-code + their non-ST deps actually occupy (~tens of MB).
+#      rag4trex + their non-ST deps actually occupy (~tens of MB).
 #
 # Two image variants are published per release:
-#   - slim (default, `:latest`) — ~450 MB. Layer 3 is a no-op; cocoindex-code's
+#   - slim (default, `:latest`) — ~450 MB. Layer 3 is a no-op; rag4trex's
 #     LiteLLM deps install in layer 7.
 #   - full (`:full`)             — ~5 GB. Layer 3 + Layer 4 bundle torch +
 #     sentence-transformers + a baked model for offline-ready local embeddings.
@@ -83,7 +83,7 @@ ENTRYPOINT ["/entrypoint.sh"]
 
 # ─── Per-release layer (last so only this one invalidates per release) ─────
 #
-# Default (PyPI flow): install cocoindex-code from PyPI, picking the extras
+# Default (PyPI flow): install rag4trex from PyPI, picking the extras
 # that match CCC_VARIANT.
 # Release workflow / local tests override with (respectively):
 #   --build-arg CCC_INSTALL_SPEC=/ccc-src
@@ -96,9 +96,9 @@ ARG CCC_INSTALL_SPEC=""
 RUN --mount=type=bind,source=.,target=/ccc-src,rw=true \
     if [ -z "$CCC_INSTALL_SPEC" ]; then \
         if [ "$CCC_VARIANT" = "full" ]; then \
-            CCC_INSTALL_SPEC="cocoindex-code[full]"; \
+            CCC_INSTALL_SPEC="rag4trex[full]"; \
         else \
-            CCC_INSTALL_SPEC="cocoindex-code"; \
+            CCC_INSTALL_SPEC="rag4trex"; \
         fi; \
     fi; \
     uv pip install --system "${CCC_INSTALL_SPEC}"

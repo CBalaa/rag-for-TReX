@@ -23,13 +23,13 @@ FIXTURE_PROJECT = REPO_ROOT / "tests" / "e2e_docker_fixtures" / "sample_project"
 
 @pytest.fixture(scope="session")
 def docker_image() -> str:
-    """Build the image once per test session, installing cocoindex-code from the
+    """Build the image once per test session, installing rag4trex from the
     local source tree (not PyPI) so tests exercise the current changes. Returns the tag.
     """
     # Tests exercise the `full` variant so `ccc init -f` in non-TTY mode can
     # fall back to sentence-transformers (the slim variant requires
     # `--litellm-model`, which would add setup boilerplate to every test).
-    tag = "cocoindex-code:pytest"
+    tag = "rag4trex:pytest"
     subprocess.run(
         [
             "docker",

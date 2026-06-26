@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "cocoindex-code": {
-      "command": "ccc",
+    "rag4trex": {
+      "command": "rag4trex",
       "args": ["mcp"]
     }
   }

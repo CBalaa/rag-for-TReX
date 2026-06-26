@@ -5,14 +5,27 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
 from cocoindex_code import cli
 from cocoindex_code.cli import (
     add_to_gitignore,
+    app,
     remove_from_gitignore,
     require_project_root,
     resolve_default_path,
 )
+from cocoindex_code.protocol import (
+    DocsSearchHit,
+    DocsSearchResponse,
+    DocsSearchSource,
+    IndexResponse,
+    RepoSearchHit,
+    RepoSearchResponse,
+    RepoSearchSource,
+)
+
+runner = CliRunner()
 
 
 def test_require_project_root_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,6 +95,191 @@ def test_resolve_default_path_outside_project(
     monkeypatch.chdir(other)
     result = resolve_default_path(project_root)
     assert result is None
+
+
+def test_docs_cli_commands_emit_json_and_pass_index_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "project"
+    (project / ".cocoindex_code").mkdir(parents=True)
+    (project / ".cocoindex_code" / "settings.yml").write_text("include_patterns: []\n")
+    settings_dir = tmp_path / "ccc_home"
+    settings_dir.mkdir()
+    (settings_dir / "global_settings.yml").write_text(
+        "embedding:\n  model: test\n  provider: litellm\n"
+    )
+    monkeypatch.setenv("COCOINDEX_CODE_DIR", str(settings_dir))
+    monkeypatch.chdir(project)
+
+    calls: list[tuple[str, object]] = []
+
+    def fake_index(
+        project_root: str,
+        on_progress: object = None,
+        on_waiting: object = None,
+        index_type: str = "code",
+    ) -> IndexResponse:
+        calls.append(("index", index_type))
+        return IndexResponse(success=True)
+
+    def fake_project_status(project_root: str) -> object:
+        class Status:
+            progress = None
+            index_exists = True
+            total_chunks = 0
+            total_files = 0
+            languages: dict[str, int] = {}
+            docs_index_exists = True
+            docs_total_chunks = 1
+            docs_total_files = 1
+
+        return Status()
+
+    def fake_search_docs(**kwargs: object) -> DocsSearchResponse:
+        calls.append(("search_docs", kwargs["path_prefix"]))
+        return DocsSearchResponse(
+            success=True,
+            query=str(kwargs["query"]),
+            hits=[
+                DocsSearchHit(
+                    content_type="documentation",
+                    score=0.9,
+                    content="Set AUTH_TOKEN.",
+                    source=DocsSearchSource(
+                        path="docs/auth.md",
+                        heading="Auth",
+                        heading_path=["Deploy", "Auth"],
+                        line_start=10,
+                        line_end=20,
+                        content_hash="sha256:content",
+                        chunk_hash="sha256:chunk",
+                    ),
+                )
+            ],
+            total_returned=1,
+        )
+
+    def fake_search_repo(**kwargs: object) -> RepoSearchResponse:
+        calls.append(("search_repo", kwargs["content_type"]))
+        return RepoSearchResponse(
+            success=True,
+            query=str(kwargs["query"]),
+            hits=[
+                RepoSearchHit(
+                    content_type="documentation",
+                    score=0.8,
+                    content="Set AUTH_TOKEN.",
+                    source=RepoSearchSource(
+                        path="docs/auth.md",
+                        line_start=10,
+                        line_end=20,
+                        heading="Auth",
+                        heading_path=["Deploy", "Auth"],
+                        content_hash="sha256:content",
+                        chunk_hash="sha256:chunk",
+                    ),
+                )
+            ],
+            total_returned=1,
+        )
+
+    monkeypatch.setattr("cocoindex_code.client.index", fake_index)
+    monkeypatch.setattr("cocoindex_code.client.project_status", fake_project_status)
+    monkeypatch.setattr("cocoindex_code.client.search_docs", fake_search_docs)
+    monkeypatch.setattr("cocoindex_code.client.search_repo", fake_search_repo)
+
+    def fake_run_index_with_progress(root: str, index_type: str = "code") -> None:
+        fake_index(root, index_type=index_type)
+
+    monkeypatch.setattr(cli, "_run_index_with_progress", fake_run_index_with_progress)
+
+    result = runner.invoke(app, ["index", "--type", "docs"], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert ("index", "docs") in calls
+
+    result = runner.invoke(
+        app,
+        ["search-docs", "如何配置鉴权", "--path-prefix", "docs/", "--json"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert '"content_type": "documentation"' in result.output
+    assert '"path": "docs/auth.md"' in result.output
+    assert '"heading_path": [' in result.output
+    assert '"content_hash": "sha256:content"' in result.output
+
+    result = runner.invoke(
+        app,
+        ["search-repo", "AUTH_TOKEN 文档在哪里", "--type", "docs", "--json"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert '"chunk_hash": "sha256:chunk"' in result.output
+
+    result = runner.invoke(
+        app,
+        ["locate", "AUTH_TOKEN 文档在哪里", "--type", "docs", "--json"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert ("search_repo", "docs") in calls
+
+
+def test_install_skill_to_target_dir(tmp_path: Path) -> None:
+    target_dir = tmp_path / "skills"
+
+    result = runner.invoke(
+        app,
+        ["install-skill", "--target-dir", str(target_dir)],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (target_dir / "ccc" / "SKILL.md").is_file()
+    assert (target_dir / "ccc" / "references" / "management.md").is_file()
+    assert (target_dir / "ccc" / "references" / "settings.md").is_file()
+
+
+def test_install_skill_refuses_existing_without_force(tmp_path: Path) -> None:
+    target_dir = tmp_path / "skills"
+    existing = target_dir / "ccc"
+    existing.mkdir(parents=True)
+    (existing / "SKILL.md").write_text("old skill\n")
+
+    result = runner.invoke(app, ["install-skill", "--target-dir", str(target_dir)])
+
+    assert result.exit_code == 1
+    assert "already exists" in result.output
+    assert (existing / "SKILL.md").read_text() == "old skill\n"
+
+
+def test_install_skill_force_replaces_existing(tmp_path: Path) -> None:
+    target_dir = tmp_path / "skills"
+    existing = target_dir / "ccc"
+    existing.mkdir(parents=True)
+    (existing / "old.txt").write_text("old skill\n")
+
+    result = runner.invoke(
+        app,
+        ["install-skill", "--target-dir", str(target_dir), "--force"],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert not (existing / "old.txt").exists()
+    assert (existing / "SKILL.md").is_file()
+
+
+def test_install_skill_uses_codex_home_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    codex_home = tmp_path / "codex-home"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    result = runner.invoke(app, ["install-skill"], catch_exceptions=False)
+
+    assert result.exit_code == 0, result.output
+    assert (codex_home / "skills" / "ccc" / "SKILL.md").is_file()
 
 
 # ---------------------------------------------------------------------------

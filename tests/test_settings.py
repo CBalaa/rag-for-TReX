@@ -11,12 +11,14 @@ import pytest
 # error paths (bad format, non-callable) are not exercised by integration tests.
 from cocoindex_code.daemon import _resolve_chunker_registry
 from cocoindex_code.settings import (
+    DEFAULT_DOCS_INCLUDED_PATTERNS,
     DEFAULT_EXCLUDED_PATTERNS,
     DEFAULT_INCLUDED_PATTERNS,
     ChunkerMapping,
     EmbeddingSettings,
     LanguageOverride,
     ProjectSettings,
+    RerankSettings,
     UserSettings,
     _reset_db_path_mapping_cache,
     _reset_host_path_mapping_cache,
@@ -26,9 +28,11 @@ from cocoindex_code.settings import (
     find_project_root,
     format_path_for_display,
     get_host_path_mappings,
+    legacy_project_settings_path,
     load_project_settings,
     load_user_settings,
     normalize_input_path,
+    project_settings_path,
     resolve_db_dir,
     save_project_settings,
     save_user_settings,
@@ -54,6 +58,8 @@ def test_default_user_settings() -> None:
     assert s.embedding.model == "Snowflake/snowflake-arctic-embed-xs"
     assert s.embedding.device is None
     assert s.embedding.min_interval_ms is None
+    assert s.rerank.enabled is False
+    assert s.rerank.model is None
     assert s.envs == {}
 
 
@@ -61,6 +67,11 @@ def test_default_project_settings() -> None:
     s = default_project_settings()
     assert s.include_patterns == DEFAULT_INCLUDED_PATTERNS
     assert s.exclude_patterns == DEFAULT_EXCLUDED_PATTERNS
+    assert s.docs_include_patterns == DEFAULT_DOCS_INCLUDED_PATTERNS
+    assert s.docs_exclude_patterns == []
+    assert s.scan.respect_gitignore is True
+    assert s.scan.ragignore_file == ".ragignore"
+    assert "**/*.key" in s.always_exclude
     assert s.language_overrides == []
 
 
@@ -77,6 +88,14 @@ def test_save_and_load_user_settings(tmp_path: Path) -> None:
             device="cpu",
             min_interval_ms=300,
         ),
+        rerank=RerankSettings(
+            enabled=True,
+            provider="litellm",
+            model="cohere/rerank-v3.5",
+            top_n=25,
+            min_interval_ms=200,
+            params={"max_tokens_per_doc": 512},
+        ),
         envs={"GEMINI_API_KEY": "test-key"},
     )
     save_user_settings(settings)
@@ -85,22 +104,125 @@ def test_save_and_load_user_settings(tmp_path: Path) -> None:
     assert loaded.embedding.model == settings.embedding.model
     assert loaded.embedding.device == settings.embedding.device
     assert loaded.embedding.min_interval_ms == settings.embedding.min_interval_ms
+    assert loaded.rerank.enabled is True
+    assert loaded.rerank.model == "cohere/rerank-v3.5"
+    assert loaded.rerank.top_n == 25
+    assert loaded.rerank.min_interval_ms == 200
+    assert loaded.rerank.params == {"max_tokens_per_doc": 512}
     assert loaded.envs == settings.envs
+
+
+@pytest.mark.usefixtures("_patch_user_dir")
+def test_load_user_settings_rejects_enabled_rerank_without_model(tmp_path: Path) -> None:
+    path = tmp_path / ".cocoindex_code" / "global_settings.yml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        """
+embedding:
+  provider: litellm
+  model: text-embedding-3-small
+rerank:
+  enabled: true
+"""
+    )
+    with pytest.raises(ValueError, match="rerank.model"):
+        load_user_settings()
 
 
 def test_save_and_load_project_settings(tmp_path: Path) -> None:
     settings = ProjectSettings(
         include_patterns=["**/*.py", "**/*.rs"],
         exclude_patterns=["**/target"],
+        docs_include_patterns=["docs/**/*.md"],
+        docs_exclude_patterns=["docs/private/**"],
         language_overrides=[LanguageOverride(ext="inc", lang="php")],
     )
     save_project_settings(tmp_path, settings)
+    assert project_settings_path(tmp_path) == tmp_path / ".rag4trex.yml"
+    assert project_settings_path(tmp_path).is_file()
     loaded = load_project_settings(tmp_path)
     assert loaded.include_patterns == settings.include_patterns
     assert loaded.exclude_patterns == settings.exclude_patterns
+    assert loaded.docs_include_patterns == settings.docs_include_patterns
+    assert loaded.docs_exclude_patterns == settings.docs_exclude_patterns
     assert len(loaded.language_overrides) == 1
     assert loaded.language_overrides[0].ext == "inc"
     assert loaded.language_overrides[0].lang == "php"
+
+
+def test_load_project_settings_prefers_rag4trex_over_legacy(tmp_path: Path) -> None:
+    legacy = legacy_project_settings_path(tmp_path)
+    legacy.parent.mkdir()
+    legacy.write_text("include_patterns:\n  - legacy/**\n")
+    project_settings_path(tmp_path).write_text("include_patterns:\n  - current/**\n")
+
+    loaded = load_project_settings(tmp_path)
+
+    assert loaded.include_patterns == ["current/**"]
+
+
+def test_load_project_settings_legacy_fallback(tmp_path: Path) -> None:
+    legacy = legacy_project_settings_path(tmp_path)
+    legacy.parent.mkdir()
+    legacy.write_text("include_patterns:\n  - legacy/**\n")
+
+    loaded = load_project_settings(tmp_path)
+
+    assert loaded.include_patterns == ["legacy/**"]
+
+
+def test_load_project_settings_indexes_shape(tmp_path: Path) -> None:
+    (tmp_path / ".cocoindex_code").mkdir()
+    (tmp_path / ".cocoindex_code" / "settings.yml").write_text(
+        """
+indexes:
+  docs:
+    roots: [docs, README.md]
+    include: ["docs/**/*.md", "README.md"]
+    exclude: ["docs/archive/**"]
+  code:
+    roots: [src]
+    include: ["src/**/*.py"]
+    exclude: ["src/generated/**"]
+scan:
+  ragignore_file: ".ragignore"
+search:
+  default_mode: "hybrid"
+  default_top_k: 8
+always_exclude:
+  - "**/*.key"
+"""
+    )
+    loaded = load_project_settings(tmp_path)
+    assert loaded.docs_include_patterns == ["docs/**/*.md", "README.md"]
+    assert loaded.docs_exclude_patterns == ["docs/archive/**"]
+    assert loaded.include_patterns == ["src/**/*.py"]
+    assert loaded.exclude_patterns == ["src/generated/**"]
+    assert loaded.search.default_mode == "hybrid"
+    assert loaded.always_exclude == ["**/*.key"]
+
+
+def test_explain_path_reports_ragignore_and_always_exclude(tmp_path: Path) -> None:
+    from cocoindex_code.file_walk import explain_path
+
+    save_project_settings(
+        tmp_path,
+        ProjectSettings(
+            docs_include_patterns=["docs/**/*.md", "docs/**/*.key"],
+            docs_exclude_patterns=[],
+            always_exclude=["**/*.key"],
+        ),
+    )
+    (tmp_path / ".ragignore").write_text("docs/old.md\n")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "old.md").write_text("# Old\n")
+    (tmp_path / "docs" / "secret.key").write_text("secret\n")
+    old = explain_path(tmp_path, "docs/old.md", index_type="docs")
+    secret = explain_path(tmp_path, "docs/secret.key", index_type="docs")
+    assert old["included"] is False
+    assert ".ragignore" in old["reasons"]
+    assert secret["included"] is False
+    assert "always_exclude" in secret["reasons"]
 
 
 @pytest.mark.usefixtures("_patch_user_dir")
@@ -155,8 +277,8 @@ def test_load_project_settings_missing_file_raises(tmp_path: Path) -> None:
 
 def test_find_project_root_from_subdirectory(tmp_path: Path) -> None:
     project = tmp_path / "project"
-    (project / ".cocoindex_code").mkdir(parents=True)
-    (project / ".cocoindex_code" / "settings.yml").write_text("include_patterns: []")
+    project.mkdir()
+    (project / ".rag4trex.yml").write_text("include_patterns: []")
     subdir = project / "src" / "lib"
     subdir.mkdir(parents=True)
     assert find_project_root(subdir) == project
@@ -164,8 +286,8 @@ def test_find_project_root_from_subdirectory(tmp_path: Path) -> None:
 
 def test_find_project_root_from_project_root(tmp_path: Path) -> None:
     project = tmp_path / "project"
-    (project / ".cocoindex_code").mkdir(parents=True)
-    (project / ".cocoindex_code" / "settings.yml").write_text("include_patterns: []")
+    project.mkdir()
+    (project / ".rag4trex.yml").write_text("include_patterns: []")
     assert find_project_root(project) == project
 
 

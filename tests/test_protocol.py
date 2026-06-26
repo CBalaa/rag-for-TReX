@@ -8,6 +8,9 @@ from cocoindex_code.protocol import (
     DaemonProjectInfo,
     DaemonStatusRequest,
     DaemonStatusResponse,
+    DocsSearchHit,
+    DocsSearchResponse,
+    DocsSearchSource,
     DoctorCheckResult,
     DoctorRequest,
     DoctorResponse,
@@ -22,8 +25,13 @@ from cocoindex_code.protocol import (
     ProjectStatusResponse,
     RemoveProjectRequest,
     RemoveProjectResponse,
+    RepoSearchHit,
+    RepoSearchResponse,
+    RepoSearchSource,
     Request,
     Response,
+    SearchDocsRequest,
+    SearchRepoRequest,
     SearchRequest,
     SearchResponse,
     SearchResult,
@@ -85,10 +93,16 @@ def test_encode_decode_search_response_with_results() -> None:
                 start_line=1,
                 end_line=1,
                 score=0.95,
+                symbol="foo",
+                symbol_type="function",
+                content_hash="sha256:file",
+                chunk_hash="sha256:chunk",
             ),
         ],
         total_returned=1,
         offset=0,
+        query="foo",
+        top_k=1,
     )
     data = encode_response(resp)
     decoded = decode_response(data)
@@ -97,7 +111,82 @@ def test_encode_decode_search_response_with_results() -> None:
     assert len(decoded.results) == 1
     assert decoded.results[0].file_path == "main.py"
     assert decoded.results[0].score == 0.95
+    assert decoded.results[0].symbol == "foo"
+    assert decoded.query == "foo"
 
+
+def test_encode_decode_docs_search_request_and_response() -> None:
+    req = SearchDocsRequest(project_root="/tmp/proj", query="auth", path_prefix="docs/", limit=3)
+    decoded_req = decode_request(encode_request(req))
+    assert isinstance(decoded_req, SearchDocsRequest)
+    assert decoded_req.path_prefix == "docs/"
+
+    resp = DocsSearchResponse(
+        success=True,
+        query="auth",
+        hits=[
+            DocsSearchHit(
+                content_type="documentation",
+                score=0.9,
+                content="Set AUTH_TOKEN.",
+                source=DocsSearchSource(
+                    path="docs/auth.md",
+                    heading="Auth",
+                    heading_path=["Deploy", "Auth"],
+                    line_start=10,
+                    line_end=20,
+                    char_start=1,
+                    char_end=20,
+                    content_hash="sha256:a",
+                    chunk_hash="sha256:b",
+                    chunk_index=0,
+                ),
+                score_details={"vector_score": 0.9, "keyword_score": None, "rerank_score": None},
+                metadata={"extension": ".md"},
+            )
+        ],
+    )
+    decoded_resp = decode_response(encode_response(resp))
+    assert isinstance(decoded_resp, DocsSearchResponse)
+    assert decoded_resp.hits[0].source.heading_path == ["Deploy", "Auth"]
+    assert decoded_resp.hits[0].source.chunk_index == 0
+
+
+def test_encode_decode_repo_search() -> None:
+    req = SearchRepoRequest(
+        project_root="/tmp/proj",
+        query="login",
+        content_type="docs",
+        path_prefix="docs/",
+    )
+    decoded_req = decode_request(encode_request(req))
+    assert isinstance(decoded_req, SearchRepoRequest)
+    assert decoded_req.content_type == "docs"
+
+    resp = RepoSearchResponse(
+        success=True,
+        query="login",
+        hits=[
+            RepoSearchHit(
+                content_type="code",
+                score=0.8,
+                content="def login(): pass",
+                source=RepoSearchSource(
+                    path="auth.py",
+                    line_start=1,
+                    line_end=1,
+                    language="python",
+                    symbol="login",
+                    symbol_type="function",
+                ),
+                score_details={"vector_score": 0.8, "keyword_score": None, "rerank_score": None},
+            )
+        ],
+    )
+    decoded_resp = decode_response(encode_response(resp))
+    assert isinstance(decoded_resp, RepoSearchResponse)
+    assert decoded_resp.hits[0].source.language == "python"
+    assert decoded_resp.hits[0].source.symbol == "login"
 
 def test_encode_decode_error_response() -> None:
     resp = ErrorResponse(message="something failed")
@@ -105,6 +194,15 @@ def test_encode_decode_error_response() -> None:
     decoded = decode_response(data)
     assert isinstance(decoded, ErrorResponse)
     assert decoded.message == "something failed"
+
+
+def test_project_status_docs_fields_default() -> None:
+    resp = ProjectStatusResponse(indexing=False, total_chunks=1, total_files=1, languages={})
+    decoded = decode_response(encode_response(resp))
+    assert isinstance(decoded, ProjectStatusResponse)
+    assert decoded.docs_total_chunks == 0
+    assert decoded.docs_total_files == 0
+    assert decoded.docs_index_exists is False
 
 
 def test_encode_decode_daemon_status_response() -> None:
@@ -130,6 +228,7 @@ def test_tagged_union_dispatch() -> None:
     data = encode_request(req)
     decoded = decode_request(data)
     assert isinstance(decoded, IndexRequest)
+    assert decoded.index_type == "code"
     assert not isinstance(decoded, HandshakeRequest)
 
 

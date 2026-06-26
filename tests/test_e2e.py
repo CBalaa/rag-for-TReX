@@ -152,7 +152,7 @@ def test_session_happy_path(e2e_project: Path) -> None:
     # Init
     result = runner.invoke(app, ["init"], catch_exceptions=False)
     assert result.exit_code == 0, result.output
-    assert (e2e_project / ".cocoindex_code" / "settings.yml").exists()
+    assert (e2e_project / ".rag4trex.yml").exists()
     assert "Created project settings" in result.output or "settings" in result.output
 
     # Init again — already initialized
@@ -238,7 +238,7 @@ def test_session_reset_databases(e2e_project: Path) -> None:
     assert "Databases deleted" in result.output
 
     # Settings should still exist
-    assert (e2e_project / ".cocoindex_code" / "settings.yml").exists()
+    assert (e2e_project / ".rag4trex.yml").exists()
 
     # DB files should be gone
     assert not (e2e_project / ".cocoindex_code" / "cocoindex.db").exists()
@@ -276,7 +276,7 @@ def test_session_reset_all(e2e_project: Path) -> None:
     assert "fully reset" in result.output
 
     # Settings should be gone
-    assert not (e2e_project / ".cocoindex_code" / "settings.yml").exists()
+    assert not (e2e_project / ".rag4trex.yml").exists()
 
     # .gitignore entry should be removed
     assert "/.cocoindex_code/" not in gitignore.read_text()
@@ -301,7 +301,7 @@ def test_session_reset_then_full_reinit(e2e_project: Path) -> None:
     # Re-init from scratch
     result = runner.invoke(app, ["init"], catch_exceptions=False)
     assert result.exit_code == 0
-    assert (e2e_project / ".cocoindex_code" / "settings.yml").exists()
+    assert (e2e_project / ".rag4trex.yml").exists()
 
     # Re-index
     result = runner.invoke(app, ["index"], catch_exceptions=False)
@@ -471,7 +471,7 @@ def test_session_doctor_happy_path(e2e_project: Path) -> None:
 
     # Project settings section
     assert "Project Settings" in result.output
-    assert "settings.yml" in result.output
+    assert ".rag4trex.yml" in result.output
     assert "Include patterns (" in result.output
     assert "Exclude patterns (" in result.output
 
@@ -801,7 +801,7 @@ def test_init_model_test_failure_is_non_fatal(
 
     # Settings file was written (not rolled back) and project was initialized.
     assert user_settings_path().is_file()
-    assert (e2e_fresh_env / ".cocoindex_code" / "settings.yml").exists()
+    assert (e2e_fresh_env / ".rag4trex.yml").exists()
 
 
 def test_init_rejects_litellm_model_when_settings_exist(e2e_project: Path) -> None:
@@ -858,13 +858,13 @@ async def test_daemon_check_model_maps_failure_to_doctor_result() -> None:
 
 
 def test_dockerfile_install_line_uses_full_extra() -> None:
-    """Dockerfile should install via `cocoindex-code[full]` (not the old
+    """Dockerfile should install via `rag4trex[full]` (not the old
     `[default]` alias) and should not hard-pin sentence-transformers.
     """
     repo_root = Path(__file__).resolve().parent.parent
     content = (repo_root / "docker" / "Dockerfile").read_text()
-    assert "cocoindex-code[full]" in content
-    assert "cocoindex-code[default]" not in content
+    assert "rag4trex[full]" in content
+    assert "rag4trex[default]" not in content
     assert "sentence-transformers>=" not in content
     assert "sentence-transformers==" not in content
 
@@ -926,7 +926,7 @@ def test_session_db_path_mapping(
     assert result.exit_code == 0, result.output
 
     # Settings should be in the project dir, NOT the mapped dir
-    assert (project_dir / ".cocoindex_code" / "settings.yml").exists()
+    assert (project_dir / ".rag4trex.yml").exists()
 
     # Index
     result = runner.invoke(app, ["index"], catch_exceptions=False)
@@ -947,7 +947,7 @@ def test_session_db_path_mapping(
     assert result.exit_code == 0
     assert not (mapped_db_dir / "target_sqlite.db").exists()
     # Settings still in place
-    assert (project_dir / ".cocoindex_code" / "settings.yml").exists()
+    assert (project_dir / ".rag4trex.yml").exists()
 
 
 # ---------------------------------------------------------------------------

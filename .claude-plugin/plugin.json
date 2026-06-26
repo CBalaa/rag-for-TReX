@@ -1,13 +1,13 @@
 {
-  "name": "cocoindex-code",
+  "name": "rag4trex",
   "version": "1.0.0",
-  "description": "AST-based semantic code search via the ccc CLI. Bundles the ccc skill; Grok installs also activate a SessionStart index hook and MCP server (disable either for skill-only).",
+  "description": "Repository RAG for code and Markdown docs via MCP tools. Bundles the ccc skill and optional MCP configuration.",
   "author": {
-    "name": "CocoIndex",
-    "email": "hi@cocoindex.io"
+    "name": "rag4trex",
+    "email": ""
   },
-  "homepage": "https://github.com/cocoindex-io/cocoindex-code",
-  "repository": "https://github.com/cocoindex-io/cocoindex-code",
+  "homepage": "https://github.com/CBalaa/rag-for-TReX",
+  "repository": "https://github.com/CBalaa/rag-for-TReX",
   "license": "Apache-2.0",
   "keywords": [
     "semantic-search",

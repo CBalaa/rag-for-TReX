@@ -27,16 +27,6 @@ A lightweight, effective **(AST-based)** semantic code search tool for your code
 
 🌟 Please help star [CocoIndex](https://github.com/cocoindex-io/cocoindex) if you like this project!
 
-[Deutsch](https://readme-i18n.com/cocoindex-io/cocoindex-code?lang=de) |
-[English](https://readme-i18n.com/cocoindex-io/cocoindex-code?lang=en) |
-[Español](https://readme-i18n.com/cocoindex-io/cocoindex-code?lang=es) |
-[français](https://readme-i18n.com/cocoindex-io/cocoindex-code?lang=fr) |
-[日本語](https://readme-i18n.com/cocoindex-io/cocoindex-code?lang=ja) |
-[한국어](https://readme-i18n.com/cocoindex-io/cocoindex-code?lang=ko) |
-[Português](https://readme-i18n.com/cocoindex-io/cocoindex-code?lang=pt) |
-[Русский](https://readme-i18n.com/cocoindex-io/cocoindex-code?lang=ru) |
-[中文](https://readme-i18n.com/cocoindex-io/cocoindex-code?lang=zh)
-
 </div>
 
 
@@ -46,46 +36,62 @@ A lightweight, effective **(AST-based)** semantic code search tool for your code
 
 Using [pipx](https://pipx.pypa.io/stable/installation/):
 ```bash
-pipx install 'cocoindex-code[full]'          # batteries included (local embeddings)
-pipx upgrade cocoindex-code                  # upgrade
+pipx install 'rag4trex[full]'          # batteries included (local embeddings)
+pipx upgrade rag4trex                  # upgrade
 ```
 
 Using [uv](https://docs.astral.sh/uv/getting-started/installation/):
 ```bash
-uv tool install --upgrade 'cocoindex-code[full]'
+uv tool install --upgrade 'rag4trex[full]'
 ```
 
 Two install styles — they mirror the Docker image variants of the same names:
-- `cocoindex-code[full]` — batteries-included. Pulls in `sentence-transformers` so local embeddings (no API key required) work out of the box. The `ccc init` interactive prompt defaults to [Snowflake/snowflake-arctic-embed-xs](https://huggingface.co/Snowflake/snowflake-arctic-embed-xs).
-- `cocoindex-code` (slim) — LiteLLM-only; requires a cloud embedding provider and API key. Use when you don't want the local-embedding deps (~1 GB of torch + transformers).
+- `rag4trex[full]` — batteries-included. Pulls in `sentence-transformers` so local embeddings (no API key required) work out of the box. The `ccc init` interactive prompt defaults to [Snowflake/snowflake-arctic-embed-xs](https://huggingface.co/Snowflake/snowflake-arctic-embed-xs).
+- `rag4trex` (slim) — LiteLLM-only; requires a cloud embedding provider and API key. Use when you don't want the local-embedding deps (~1 GB of torch + transformers).
 
 Next, set up your [coding agent integration](#coding-agent-integration) — or jump to [Manual CLI Usage](#manual-cli-usage) if you prefer direct control.
 
 ## Coding Agent Integration
 
-This repository is a **single plugin marketplace** (`.claude-plugin/marketplace.json`) consumed by both **Claude Code** and **Grok** — same plugin id `cocoindex-code`, same `ccc` skill. Grok optionally activates the bundled hooks and MCP server with `--trust`; Claude Code users can install the same marketplace and rely on the skill alone or load hooks/MCP from the plugin as needed.
+This repository is a **single plugin marketplace** (`.claude-plugin/marketplace.json`) consumed by both **Claude Code** and **Grok** — same plugin id `rag4trex`, same `ccc` skill. Grok optionally activates the bundled hooks and MCP server with `--trust`; Claude Code users can install the same marketplace and rely on the skill alone or load hooks/MCP from the plugin as needed.
 
 ### Skill (Recommended)
 
-Install the `ccc` skill so your coding agent automatically uses semantic search when needed:
+When installed from PyPI, `rag4trex` can install the bundled Codex skill into your
+local Codex skills directory:
 
 ```bash
-npx skills add cocoindex-io/cocoindex-code
+pipx install 'rag4trex[full]'
+rag4trex install-skill
+codex mcp add rag4trex -- rag4trex mcp
 ```
 
-That's it — no `ccc init` or `ccc index` needed. The skill teaches the agent to handle initialization, indexing, and searching on its own. It will automatically keep the index up to date as you work.
+Use `rag4trex install-skill --force` to replace an existing local copy. By default
+the command installs to `$CODEX_HOME/skills/ccc`, or `~/.codex/skills/ccc` when
+`CODEX_HOME` is unset. For custom layouts:
+
+```bash
+rag4trex install-skill --codex-home ~/.codex
+rag4trex install-skill --target-dir /path/to/skills
+```
+
+The skill teaches Codex when to use the provided MCP tools:
+`search_code`, `search_docs`, `search_repo`, `locate_repo`, and
+`get_index_status`. Configure the MCP server with `codex mcp add ...` so those
+tools are available to the agent.
 
 The agent uses semantic search automatically when it would be helpful. You can also nudge it explicitly — just ask it to search the codebase, e.g. *"find how user sessions are managed"*, or type `/ccc` to invoke the skill directly.
 
-Works with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and other skill-compatible agents.
+For repository/plugin marketplace installs, the root `skills/ccc/` directory
+contains the same skill files.
 
 #### Claude Code plugin marketplace
 
 For Claude Code users, this repository is also a [plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces). Install the skill from inside Claude Code with:
 
 ```text
-/plugin marketplace add cocoindex-io/cocoindex-code
-/plugin install cocoindex-code@cocoindex-code
+/plugin marketplace add CBalaa/rag-for-TReX
+/plugin install rag4trex@rag4trex
 ```
 
 This bundles the same `ccc` skill, with version pinning and `/plugin marketplace update` for updates. The repository also ships `hooks/hooks.json` and `.mcp.json` for Grok (and Claude Code plugin installs that load those files); Claude users who want skill-only search can rely on the skill alone and add MCP manually in the [MCP Server](#mcp-server) section below instead of using the bundled `.mcp.json`.
@@ -96,21 +102,21 @@ For [Grok](https://github.com/xai-org/grok) users, install via Grok's plugin sys
 
 | Component | Purpose |
 |-----------|---------|
-| **Skill** (`skills/ccc/`) | Agent runs `ccc search` / `ccc index` via the CLI (same as Claude Code above) |
+| **Skill** (`skills/ccc/`) | Agent uses the provided MCP tools for RAG discovery and location |
 | **Hook** (`hooks/hooks.json`) | `SessionStart` → incremental `ccc index` when `.cocoindex_code/` exists |
-| **MCP** (`.mcp.json`) | `ccc mcp` stdio server — `search` tool with `refresh_index=true` by default |
+| **MCP** (`.mcp.json`) | `rag4trex mcp` stdio server — `search` tool with `refresh_index=true` by default |
 
 Grok does **not** import Claude's `enabledPlugins` or plugin cache; install separately even if you already use cocoindex in Claude Code.
 
 **Full install** (skill + hook + MCP):
 
 ```bash
-grok plugin marketplace add cocoindex-io/cocoindex-code
-grok plugin install cocoindex-io/cocoindex-code --trust
-grok plugin enable cocoindex-code
+grok plugin marketplace add CBalaa/rag-for-TReX
+grok plugin install CBalaa/rag-for-TReX --trust
+grok plugin enable rag4trex
 ```
 
-Prefer the GitHub shorthand (`cocoindex-io/cocoindex-code`) for install — `grok plugin install cocoindex-code` can fail when no marketplace plugin matches that bare name.
+Prefer the GitHub shorthand (`CBalaa/rag-for-TReX`) for install — `grok plugin install rag4trex` can fail when no marketplace plugin matches that bare name.
 
 `--trust` is required so Grok activates the plugin's hooks and MCP server (skills load when the plugin is enabled).
 
@@ -118,15 +124,15 @@ Prefer the GitHub shorthand (`cocoindex-io/cocoindex-code`) for install — `gro
 
 Install and enable as above, then disable the optional components:
 
-1. **Hooks** — open `/hooks`, select the `SessionStart` hook from `cocoindex-code`, press `Space` to disable.
-2. **MCP** — open `/mcps`, select `cocoindex-code`, press `Space` to disable; or persist in `~/.grok/config.toml`:
+1. **Hooks** — open `/hooks`, select the `SessionStart` hook from `rag4trex`, press `Space` to disable.
+2. **MCP** — open `/mcps`, select `rag4trex`, press `Space` to disable; or persist in `~/.grok/config.toml`:
 
 ```toml
-[mcp_servers.cocoindex-code]
+[mcp_servers.rag4trex]
 enabled = false
 ```
 
-The agent still owns indexing via the `ccc` skill (`ccc index` / `ccc search --refresh` when stale), same as Claude Code.
+The agent still uses the `ccc` skill for RAG discovery decisions, and the skill calls the configured MCP tools rather than shelling out to CLI search commands.
 
 To avoid importing MCP servers from your Claude/Cursor user config (unrelated to this plugin):
 
@@ -146,7 +152,7 @@ Alternatively, use `ccc mcp` to run as an MCP server:
 <summary>Claude Code</summary>
 
 ```bash
-claude mcp add cocoindex-code -- ccc mcp
+claude mcp add rag4trex -- rag4trex mcp
 ```
 </details>
 
@@ -154,7 +160,7 @@ claude mcp add cocoindex-code -- ccc mcp
 <summary>Codex</summary>
 
 ```bash
-codex mcp add cocoindex-code -- ccc mcp
+codex mcp add rag4trex -- rag4trex mcp
 ```
 </details>
 
@@ -164,19 +170,19 @@ codex mcp add cocoindex-code -- ccc mcp
 ```bash
 opencode mcp add
 ```
-Enter MCP server name: `cocoindex-code`
+Enter MCP server name: `rag4trex`
 Select MCP server type: `local`
-Enter command to run: `ccc mcp`
+Enter command to run: `rag4trex mcp`
 
 Or use opencode.json:
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "cocoindex-code": {
+    "rag4trex": {
       "type": "local",
       "command": [
-        "ccc", "mcp"
+        "rag4trex", "mcp"
       ]
     }
   }
@@ -192,9 +198,9 @@ Add a local MCP server in `~/.config/kilo/kilo.jsonc`, `kilo.jsonc`, or `.kilo/k
 ```json
 {
   "mcp": {
-    "cocoindex-code": {
+    "rag4trex": {
       "type": "local",
-      "command": ["ccc", "mcp"],
+      "command": ["rag4trex", "mcp"],
       "enabled": true
     }
   }
@@ -204,12 +210,94 @@ Add a local MCP server in `~/.config/kilo/kilo.jsonc`, `kilo.jsonc`, or `.kilo/k
 
 Once configured, the agent automatically decides when semantic code search is helpful — finding code by description, exploring unfamiliar codebases, fuzzy/conceptual matches, or locating implementations without knowing exact names.
 
-> **Note:** The `cocoindex-code` command (without subcommand) still works as an MCP server for backward compatibility. It auto-creates settings from environment variables on first run.
+> **Note:** The `rag4trex` command (without subcommand) still works as an MCP server for backward compatibility. It auto-creates settings from environment variables on first run.
+
+### Docs RAG
+
+`ccc` can maintain a separate Markdown documentation index alongside the existing code index. Docs indexing handles `.md`, `.mdx`, and `.markdown` files with Markdown-aware chunks that preserve headings, heading paths, line ranges, char ranges, frontmatter, and content/chunk hashes.
+
+```bash
+ccc index --type docs
+ccc index --type all
+ccc search-docs "how to configure auth" --json
+ccc search-repo "login failure flow" --json
+ccc locate "where is AUTH_TOKEN documented" --type docs --json
+```
+
+Docs and code are stored separately: code chunks use `code_chunks_vec`; documentation chunks use `docs_chunks_vec` with `content_type=documentation`. `search-docs` searches only documentation. `search-repo` and `locate` return a unified JSON shape across code and docs.
+
+JSON search output uses the stable `repo-rag-search-v1` envelope:
+
+```json
+{
+  "schema_version": "repo-rag-search-v1",
+  "query": "how to configure auth",
+  "mode": "semantic",
+  "index": "docs",
+  "top_k": 8,
+  "hits": []
+}
+```
+
+Project settings support separate docs/code include/exclude rules. The legacy top-level keys still work, and new settings may also use the `indexes` shape:
+
+```yaml
+indexes:
+  docs:
+    roots: [docs, README.md]
+    include: ["docs/**/*.md", "docs/**/*.mdx", "README.md", "**/*.markdown"]
+    exclude: ["docs/archive/**", "**/*.generated.md"]
+    collection: "project_docs"
+    chunker: "markdown-v1"
+  code:
+    roots: [src, packages, tests, scripts]
+    include: ["src/**", "packages/**", "tests/**", "scripts/**"]
+    exclude: ["**/*.generated.*", "**/fixtures/**", "**/snapshots/**"]
+    collection: "project_code"
+    chunker: "code-ast-v1"
+scan:
+  respect_gitignore: true
+  ragignore_file: ".ragignore"
+  follow_symlinks: false
+  max_file_size_kb: 512
+search:
+  default_mode: "semantic"
+  default_top_k: 8
+  max_top_k: 50
+  return_content_max_chars: 4000
+```
+
+File walking honors `.gitignore`, `.ragignore`, configured excludes, and forced safety excludes such as `.git/`, `node_modules/`, `dist/`, `build/`, virtualenvs, `__pycache__/`, `.env`, key files, secrets directories, common database files, binary archives, images, and PDFs. Forced safety excludes cannot be overridden by normal include rules.
+
+Use `ccc scan --dry-run --type docs` to inspect matched files, and `ccc files --explain docs/auth.md --type docs --json` to explain why a file is indexed or skipped.
+
+MCP exposes `search_docs`, `search_code`, `search_repo`, `locate_repo`, and `get_index_status`. RAG tools only discover and locate relevant chunks; they do not provide the final source-file read path and never modify files.
+
+Use the tools by role:
+
+- RAG search is for fuzzy semantic discovery.
+- Repository text/grep search is for exact strings, function names, config keys, and error codes.
+- File read is for authoritative current contents.
+- Read real files before modifying code or docs.
+- Never modify RAG database chunks directly.
+- Use `jq` to extract fields from RAG JSON.
+- Use `python -m json.tool` to validate or format JSON.
+- Use Python for complex JSON transforms or batch processing.
+- Use `rg` for exact string search.
+- Use `nl` / `sed` to read and confirm real source-file line ranges.
+- Do not parse JSON structure with `rg` or `sed`.
+- Do not modify files based only on RAG chunks.
+
+不知道具体要找什么时，使用 RAG。
+
+已经知道函数名、配置项、错误码、文件名时，使用 repository search。
+
+准备相信或修改内容时，读取真实文件。
 
 <details>
 <summary>MCP Tool Reference</summary>
 
-When running as an MCP server (`ccc mcp`), the following tool is exposed:
+When running as an MCP server (`ccc mcp`), these tools are exposed:
 
 **`search`** — Search the codebase using semantic similarity.
 
@@ -223,6 +311,18 @@ search(
     paths: list[str] | None = None,      # Filter by path glob (e.g. ["src/utils/*"])
 )
 ```
+
+All MCP search tools return `repo-rag-search-v1` JSON. The current first-stage retrieval mode is semantic vector search; `mode` is accepted for schema stability. Keyword/hybrid fusion is not enabled yet, so `keyword_score` is `null`. If optional reranking is configured, `rerank_score` is filled and used as the final `score`; otherwise it is `null`.
+
+**`search_code` / `search`** — Search code semantically and return JSON hits with path, language, symbol metadata when available, line range, score, content hash, and chunk hash.
+
+**`search_docs`** — Search Markdown docs semantically and return JSON hits with `path`, `heading`, `heading_path`, line/char range, `content_hash`, `chunk_hash`, frontmatter, and chunk metadata.
+
+**`search_repo`** — Search code and docs together, optionally filtering by `content_type` (`code` or `docs`) and `path_prefix`.
+
+**`locate_repo`** — Locate likely files or documentation sections using the compact `repo-rag-locate-v1` shape.
+
+**`get_index_status`** — Return structured code/docs index status.
 
 Returns matching code chunks with file path, language, code content, line numbers, and similarity score.
 </details>
@@ -314,8 +414,8 @@ Two variants are published from each release:
 
 | Tag | Size | Embedding backends | When to pick |
 |---|---|---|---|
-| `cocoindex/cocoindex-code:latest` (slim, default) | ~450 MB | LiteLLM (cloud: OpenAI, Voyage, Gemini, Ollama, …) | Most users. Cloud-backed embeddings, smaller image, fast pulls. |
-| `cocoindex/cocoindex-code:full` | ~5 GB | sentence-transformers (local) + LiteLLM | When you want local embeddings without an API key, or an offline-ready container. Heavier because of torch + transformers. |
+| `rag4trex/rag4trex:latest` (slim, default) | ~450 MB | LiteLLM (cloud: OpenAI, Voyage, Gemini, Ollama, …) | Most users. Cloud-backed embeddings, smaller image, fast pulls. |
+| `rag4trex/rag4trex:full` | ~5 GB | sentence-transformers (local) + LiteLLM | When you want local embeddings without an API key, or an offline-ready container. Heavier because of torch + transformers. |
 
 The rest of this section uses `:latest` — substitute `:full` in the `image:` /
 `docker run` commands if you want the full variant.
@@ -323,7 +423,7 @@ The rest of this section uses `:latest` — substitute `:full` in the `image:` /
 > **Mac users running the `:full` variant:** local embedding inference is
 > CPU-only inside Docker, because Docker on macOS can't access Apple's Metal
 > (MPS) GPU. If you want local embeddings and fast inference, install
-> natively instead: `pipx install 'cocoindex-code[full]'`. The `:latest`
+> natively instead: `pipx install 'rag4trex[full]'`. The `:latest`
 > (slim) variant is unaffected — LiteLLM runs the model on the provider's
 > side, so Docker vs. native makes no difference.
 
@@ -333,10 +433,10 @@ Bring it up in one line — no clone needed (bash / zsh):
 
 ```bash
 # macOS / Windows
-docker compose -f <(curl -L https://raw.githubusercontent.com/cocoindex-io/cocoindex-code/refs/heads/main/docker/docker-compose.yml) up -d
+docker compose -f <(curl -L https://raw.githubusercontent.com/CBalaa/rag-for-TReX/refs/heads/main/docker/docker-compose.yml) up -d
 
 # Linux (aligns file ownership on bind-mounted paths with your host user)
-PUID=$(id -u) PGID=$(id -g) docker compose -f <(curl -L https://raw.githubusercontent.com/cocoindex-io/cocoindex-code/refs/heads/main/docker/docker-compose.yml) up -d
+PUID=$(id -u) PGID=$(id -g) docker compose -f <(curl -L https://raw.githubusercontent.com/CBalaa/rag-for-TReX/refs/heads/main/docker/docker-compose.yml) up -d
 ```
 
 Or grab [`docker/docker-compose.yml`](./docker/docker-compose.yml) and run `docker compose up -d` next to it (works on any shell, including Windows cmd / PowerShell).
@@ -350,8 +450,8 @@ is visible and editable on the host; edits take effect on your next `ccc` comman
 > **Pick a different image:** set `COCOINDEX_CODE_IMAGE` to override the
 > default. For example, the `:full` variant or GHCR:
 > ```bash
-> COCOINDEX_CODE_IMAGE=cocoindex/cocoindex-code:full docker compose up -d
-> COCOINDEX_CODE_IMAGE=ghcr.io/cocoindex-io/cocoindex-code:latest docker compose up -d
+> COCOINDEX_CODE_IMAGE=rag4trex/rag4trex:full docker compose up -d
+> COCOINDEX_CODE_IMAGE=ghcr.io/cbalaa/rag4trex:latest docker compose up -d
 > ```
 
 ### Or: `docker run`
@@ -360,11 +460,11 @@ is visible and editable on the host; edits take effect on your next `ccc` comman
 <summary>Docker Desktop (macOS / Windows)</summary>
 
 ```bash
-docker run -d --name cocoindex-code \
+docker run -d --name rag4trex \
   --volume "$HOME:/workspace" \
   --volume cocoindex-data:/var/cocoindex \
   -e COCOINDEX_CODE_HOST_PATH_MAPPING="/workspace=$HOME" \
-  cocoindex/cocoindex-code:latest
+  rag4trex/rag4trex:latest
 ```
 </details>
 
@@ -372,12 +472,12 @@ docker run -d --name cocoindex-code \
 <summary>Linux (with <code>PUID</code>/<code>PGID</code>)</summary>
 
 ```bash
-docker run -d --name cocoindex-code \
+docker run -d --name rag4trex \
   -e PUID=$(id -u) -e PGID=$(id -g) \
   --volume "$HOME:/workspace" \
   --volume cocoindex-data:/var/cocoindex \
   -e COCOINDEX_CODE_HOST_PATH_MAPPING="/workspace=$HOME" \
-  cocoindex/cocoindex-code:latest
+  rag4trex/rag4trex:latest
 ```
 </details>
 
@@ -388,7 +488,7 @@ and picks up the right project based on your current directory:
 
 ```bash
 ccc() {
-  docker exec -it -e COCOINDEX_CODE_HOST_CWD="$PWD" cocoindex-code ccc "$@"
+  docker exec -it -e COCOINDEX_CODE_HOST_CWD="$PWD" rag4trex ccc "$@"
 }
 ```
 
@@ -403,8 +503,8 @@ Now `cd` into any project under your workspace and run `ccc init`, `ccc index`,
 Register MCP from inside the target project so `$PWD` points there:
 
 ```bash
-claude mcp add cocoindex-code -- docker exec -i \
-  -e COCOINDEX_CODE_HOST_CWD="$PWD" cocoindex-code ccc mcp
+claude mcp add rag4trex -- docker exec -i \
+  -e COCOINDEX_CODE_HOST_CWD="$PWD" rag4trex rag4trex mcp
 ```
 
 Or via `.mcp.json`:
@@ -412,7 +512,7 @@ Or via `.mcp.json`:
 ```json
 {
   "mcpServers": {
-    "cocoindex-code": {
+    "rag4trex": {
       "type": "stdio",
       "command": "docker",
       "args": [
@@ -420,8 +520,8 @@ Or via `.mcp.json`:
         "-i",
         "-e",
         "COCOINDEX_CODE_HOST_CWD=${PWD}",
-        "cocoindex-code",
-        "ccc",
+        "rag4trex",
+        "rag4trex",
         "mcp"
       ]
     }
@@ -438,8 +538,8 @@ Or via `.mcp.json`:
 <summary>Codex</summary>
 
 ```bash
-codex mcp add cocoindex-code -- docker exec -i \
-  -e COCOINDEX_CODE_HOST_CWD="$PWD" cocoindex-code ccc mcp
+codex mcp add rag4trex -- docker exec -i \
+  -e COCOINDEX_CODE_HOST_CWD="$PWD" rag4trex rag4trex mcp
 ```
 </details>
 
@@ -452,7 +552,7 @@ indexes rebuild on your next `ccc index`, and the embedding model is
 re-populated automatically on first start:
 
 ```bash
-docker rm -f cocoindex-code
+docker rm -f rag4trex
 docker volume rm cocoindex-db cocoindex-model-cache
 ```
 
@@ -478,7 +578,7 @@ Pass configuration to `docker run` / compose with `-e`:
 ### Build the image locally
 
 ```bash
-docker build -t cocoindex-code:local -f docker/Dockerfile .
+docker build -t rag4trex:local -f docker/Dockerfile .
 ```
 
 ## Features
@@ -521,6 +621,34 @@ envs:                                                # extra environment variabl
 
 > **Custom location:** set `COCOINDEX_CODE_DIR` to place `global_settings.yml` somewhere other than `~/.cocoindex_code/` — useful if you want the file to live alongside your projects (e.g. on a synced folder).
 
+#### Reranking
+
+Reranking is optional and disabled by default. When enabled, search first retrieves up to `top_n` vector candidates, then sends those candidate chunks to the reranker and uses `rerank_score` as the final `score`.
+
+```yaml
+rerank:
+  enabled: true
+  provider: litellm
+  model: cohere/rerank-v3.5
+  top_n: 50
+  min_interval_ms: 300
+  params: {}
+envs:
+  COHERE_API_KEY: your-key
+```
+
+Rerank output appears in search hits:
+
+```json
+"score_details": {
+  "vector_score": 0.81,
+  "keyword_score": null,
+  "rerank_score": 0.94
+}
+```
+
+Only `provider: litellm` is currently supported for reranking. If reranking is disabled, `rerank_score` remains `null` and vector similarity remains the final score.
+
 #### `indexing_params` / `query_params`
 
 Some embedding models expose different modes for documents vs queries (asymmetric retrieval). For example, Cohere's v3 models want `input_type: search_document` when embedding corpus content and `input_type: search_query` when embedding a user query; several SentenceTransformers models use `prompt_name: passage` / `prompt_name: query` for the same purpose. These knobs live under `indexing_params` and `query_params`:
@@ -545,9 +673,11 @@ OpenAI embeddings (`text-embedding-3-*`, `text-embedding-ada-002`) are intention
 
 **Legacy-bridge warning:** if you're upgrading from an earlier version and your `global_settings.yml` uses `nomic-ai/CodeRankEmbed` or `nomic-ai/nomic-embed-code` without `indexing_params` / `query_params`, the daemon continues to apply the previous behavior (`prompt_name: query` at query time) and prints a one-time warning asking you to make the setting explicit. You can silence the warning by adding an empty block such as `query_params: {}`.
 
-### Project Settings (`<project>/.cocoindex_code/settings.yml`)
+### Project Settings (`<project>/.rag4trex.yml`)
 
-Per-project. Controls which files to index.
+Per-project. Controls which files to index. The legacy
+`<project>/.cocoindex_code/settings.yml` path is still read as a fallback, but
+new projects should use `<project>/.rag4trex.yml`.
 
 ```yaml
 include_patterns:
@@ -593,7 +723,7 @@ Use `chunkers` when you want to control how a file type is split into chunks bef
 In practice, this usually means:
 - you create a Python file in your project, for example `example_toml_chunker.py`
 - you add a function in that file
-- you point `settings.yml` at it with `module.path:function_name`
+- you point `.rag4trex.yml` at it with `module.path:function_name`
 
 The function should use this signature:
 
@@ -845,17 +975,17 @@ Some Python installations (e.g. the one pre-installed on macOS) ship with a SQLi
 brew install python3
 ```
 
-Then re-install cocoindex-code (see [Get Started](#get-started--zero-config-lets-go) for install options):
+Then re-install rag4trex (see [Get Started](#get-started--zero-config-lets-go) for install options):
 
 Using pipx:
 ```bash
-pipx install cocoindex-code       # first install
-pipx upgrade cocoindex-code       # upgrade
+pipx install rag4trex       # first install
+pipx upgrade rag4trex       # upgrade
 ```
 
 Using uv (install or upgrade):
 ```bash
-uv tool install --upgrade cocoindex-code
+uv tool install --upgrade rag4trex
 ```
 
 ### `MDB_MAP_FULL: Environment mapsize limit reached`
@@ -887,19 +1017,19 @@ ccc index
 
 ## Legacy: Environment Variables
 
-If you previously configured `cocoindex-code` via environment variables, the `cocoindex-code` MCP command still reads them and auto-migrates to YAML settings on first run. We recommend switching to the YAML settings for new setups.
+If you previously configured `rag4trex` via environment variables, the `rag4trex` MCP command still reads them and auto-migrates to YAML settings on first run. We recommend switching to the YAML settings for new setups.
 
 | Environment Variable | YAML Equivalent |
 |---------------------|-----------------|
 | `COCOINDEX_CODE_EMBEDDING_MODEL` | `embedding.model` in `global_settings.yml` |
 | `COCOINDEX_CODE_DEVICE` | `embedding.device` in `global_settings.yml` |
 | `COCOINDEX_CODE_ROOT_PATH` | Run `ccc init` in your project root instead |
-| `COCOINDEX_CODE_EXCLUDED_PATTERNS` | `exclude_patterns` in project `settings.yml` |
-| `COCOINDEX_CODE_EXTRA_EXTENSIONS` | `include_patterns` + `language_overrides` in project `settings.yml` |
+| `COCOINDEX_CODE_EXCLUDED_PATTERNS` | `exclude_patterns` in project `.rag4trex.yml` |
+| `COCOINDEX_CODE_EXTRA_EXTENSIONS` | `include_patterns` + `language_overrides` in project `.rag4trex.yml` |
 
 ## Telemetry
 
-`cocoindex-code` sends anonymous usage telemetry through CocoIndex so we can see how the tool is used in aggregate and prioritize improvements. The events identify themselves as `application: cocoindex-code`.
+`rag4trex` sends anonymous usage telemetry through CocoIndex so we can see how the tool is used in aggregate and prioritize improvements. The events identify themselves as `application: rag4trex`.
 
 We **do not** collect your source code, file paths, queries, search results, embeddings, settings, or any other content from your codebase or environment.
 

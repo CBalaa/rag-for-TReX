@@ -42,8 +42,6 @@ DEFAULT_INCLUDED_PATTERNS: list[str] = [
     "**/*.sh",  # Shell
     "**/*.bash",  # Bash
     "**/*.zsh",  # Zsh
-    "**/*.md",  # Markdown
-    "**/*.mdx",  # MDX
     "**/*.txt",  # Plain text
     "**/*.rst",  # reStructuredText
     "**/*.php",  # PHP
@@ -77,6 +75,8 @@ DEFAULT_INCLUDED_PATTERNS: list[str] = [
 
 DEFAULT_EXCLUDED_PATTERNS: list[str] = [
     "**/.*",  # Hidden directories
+    ".rag4trex.yml",
+    "**/.rag4trex.yml",
     "**/__pycache__",  # Python cache
     "**/node_modules",  # Node.js dependencies
     "**/target",  # Rust/Maven build output
@@ -85,6 +85,73 @@ DEFAULT_EXCLUDED_PATTERNS: list[str] = [
     "**/vendor/*.*/*",  # Go vendor directory (domain-based paths)
     "**/vendor/*",  # PHP vendor directory
     "**/.cocoindex_code",  # Our own index directory
+]
+
+DEFAULT_DOCS_INCLUDED_PATTERNS: list[str] = [
+    "**/*.md",
+    "**/*.mdx",
+    "**/*.markdown",
+]
+
+DEFAULT_DOCS_EXCLUDED_PATTERNS: list[str] = []
+
+DEFAULT_CODE_ROOTS: list[str] = ["src", "packages", "tests", "scripts"]
+DEFAULT_DOCS_ROOTS: list[str] = ["docs", "README.md"]
+DEFAULT_SEARCH_MODE = "semantic"
+DEFAULT_SEARCH_TOP_K = 8
+DEFAULT_SEARCH_MAX_TOP_K = 50
+DEFAULT_RETURN_CONTENT_MAX_CHARS = 4000
+
+FORCED_EXCLUDED_PATTERNS: list[str] = [
+    ".git",
+    ".git/**",
+    "**/.git",
+    "**/.git/**",
+    ".rag4trex.yml",
+    "**/.rag4trex.yml",
+    "node_modules",
+    "node_modules/**",
+    "**/node_modules",
+    "**/node_modules/**",
+    "dist",
+    "dist/**",
+    "**/dist",
+    "**/dist/**",
+    "build",
+    "build/**",
+    "**/build",
+    "**/build/**",
+    "venv",
+    "venv/**",
+    "**/venv",
+    "**/venv/**",
+    ".venv",
+    ".venv/**",
+    "**/.venv",
+    "**/.venv/**",
+    "__pycache__",
+    "__pycache__/**",
+    "**/__pycache__",
+    "**/__pycache__/**",
+    ".env",
+    "**/.env",
+    "**/*.pem",
+    "**/*.key",
+    "secrets",
+    "secrets/**",
+    "**/secrets",
+    "**/secrets/**",
+    "**/*.db",
+    "**/*.sqlite",
+    "**/*.sqlite3",
+    "**/*.png",
+    "**/*.jpg",
+    "**/*.jpeg",
+    "**/*.gif",
+    "**/*.pdf",
+    "**/*.zip",
+    "**/*.tar",
+    "**/*.gz",
 ]
 
 # ---------------------------------------------------------------------------
@@ -106,8 +173,19 @@ class EmbeddingSettings:
 
 
 @dataclass
+class RerankSettings:
+    enabled: bool = False
+    model: str | None = None
+    provider: str = "litellm"
+    top_n: int = 50
+    min_interval_ms: int | None = None
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class UserSettings:
     embedding: EmbeddingSettings
+    rerank: RerankSettings = field(default_factory=RerankSettings)
     envs: dict[str, str] = field(default_factory=dict)
 
 
@@ -124,9 +202,47 @@ class ChunkerMapping:
 
 
 @dataclass
+class IndexSettings:
+    enabled: bool = True
+    roots: list[str] = field(default_factory=list)
+    include: list[str] = field(default_factory=list)
+    exclude: list[str] = field(default_factory=list)
+    extensions: list[str] = field(default_factory=list)
+    collection: str = ""
+    chunker: str = ""
+
+
+@dataclass
+class ScanSettings:
+    respect_gitignore: bool = True
+    ragignore_file: str = ".ragignore"
+    follow_symlinks: bool = False
+    max_file_size_kb: int = 512
+
+
+@dataclass
+class SearchSettings:
+    default_mode: str = DEFAULT_SEARCH_MODE
+    default_top_k: int = DEFAULT_SEARCH_TOP_K
+    max_top_k: int = DEFAULT_SEARCH_MAX_TOP_K
+    return_content_max_chars: int = DEFAULT_RETURN_CONTENT_MAX_CHARS
+
+
+@dataclass
 class ProjectSettings:
     include_patterns: list[str] = field(default_factory=lambda: list(DEFAULT_INCLUDED_PATTERNS))
     exclude_patterns: list[str] = field(default_factory=lambda: list(DEFAULT_EXCLUDED_PATTERNS))
+    docs_include_patterns: list[str] = field(
+        default_factory=lambda: list(DEFAULT_DOCS_INCLUDED_PATTERNS)
+    )
+    docs_exclude_patterns: list[str] = field(
+        default_factory=lambda: list(DEFAULT_DOCS_EXCLUDED_PATTERNS)
+    )
+    docs_roots: list[str] = field(default_factory=lambda: list(DEFAULT_DOCS_ROOTS))
+    code_roots: list[str] = field(default_factory=lambda: list(DEFAULT_CODE_ROOTS))
+    scan: ScanSettings = field(default_factory=ScanSettings)
+    search: SearchSettings = field(default_factory=SearchSettings)
+    always_exclude: list[str] = field(default_factory=lambda: list(FORCED_EXCLUDED_PATTERNS))
     language_overrides: list[LanguageOverride] = field(default_factory=list)
     chunkers: list[ChunkerMapping] = field(default_factory=list)
 
@@ -144,7 +260,8 @@ def default_user_settings() -> UserSettings:
         embedding=EmbeddingSettings(
             provider="sentence-transformers",
             model=DEFAULT_ST_MODEL,
-        )
+        ),
+        rerank=RerankSettings(),
     )
 
 
@@ -157,7 +274,8 @@ def default_project_settings() -> ProjectSettings:
 # ---------------------------------------------------------------------------
 
 _SETTINGS_DIR_NAME = ".cocoindex_code"
-_SETTINGS_FILE_NAME = "settings.yml"  # project-level
+_PROJECT_SETTINGS_FILE_NAME = ".rag4trex.yml"  # project-level
+_LEGACY_SETTINGS_FILE_NAME = "settings.yml"  # legacy project-level
 _USER_SETTINGS_FILE_NAME = "global_settings.yml"  # user-level
 
 _ENV_DB_PATH_MAPPING = "COCOINDEX_CODE_DB_PATH_MAPPING"
@@ -318,18 +436,36 @@ def user_settings_path() -> Path:
 
 
 def project_settings_path(project_root: Path) -> Path:
-    """Return ``$PROJECT_ROOT/.cocoindex_code/settings.yml``."""
-    return project_root / _SETTINGS_DIR_NAME / _SETTINGS_FILE_NAME
+    """Return the preferred project settings path: ``$PROJECT_ROOT/.rag4trex.yml``."""
+    return project_root / _PROJECT_SETTINGS_FILE_NAME
+
+
+def legacy_project_settings_path(project_root: Path) -> Path:
+    """Return the legacy project settings path."""
+    return project_root / _SETTINGS_DIR_NAME / _LEGACY_SETTINGS_FILE_NAME
+
+
+def project_settings_paths(project_root: Path) -> list[Path]:
+    """Return project settings paths in load-preference order."""
+    return [project_settings_path(project_root), legacy_project_settings_path(project_root)]
+
+
+def existing_project_settings_path(project_root: Path) -> Path | None:
+    """Return the first existing project settings path, preferring .rag4trex.yml."""
+    for path in project_settings_paths(project_root):
+        if path.is_file():
+            return path
+    return None
 
 
 def find_project_root(start: Path) -> Path | None:
-    """Walk up from *start* looking for ``.cocoindex_code/settings.yml``.
+    """Walk up from *start* looking for project settings.
 
     Returns the directory containing it, or ``None``.
     """
     current = start.resolve()
     while True:
-        if (current / _SETTINGS_DIR_NAME / _SETTINGS_FILE_NAME).is_file():
+        if existing_project_settings_path(current) is not None:
             return current
         parent = current.parent
         if parent == current:
@@ -356,9 +492,10 @@ def find_legacy_project_root(start: Path) -> Path | None:
 def find_parent_with_marker(start: Path) -> Path | None:
     """Walk up from *start* looking for an initialized project or a git repo.
 
-    Match criteria: ``.cocoindex_code/settings.yml`` (a real project marker —
-    distinct from a workspace-root ``.cocoindex_code/global_settings.yml``
-    which should not trigger this check) or ``.git/``.
+    Match criteria: ``.rag4trex.yml`` or legacy ``.cocoindex_code/settings.yml``
+    (real project markers, distinct from a workspace-root
+    ``.cocoindex_code/global_settings.yml`` which should not trigger this check)
+    or ``.git/``.
 
     Returns the first directory found, or ``None``. Does not consider the home
     directory or above, to avoid false positives on CI runners where ~/.git
@@ -372,9 +509,7 @@ def find_parent_with_marker(start: Path) -> Path | None:
         parent = current.parent
         if parent == current:
             return None
-        if (current / _SETTINGS_DIR_NAME / _SETTINGS_FILE_NAME).is_file() or (
-            current / ".git"
-        ).is_dir():
+        if existing_project_settings_path(current) is not None or (current / ".git").is_dir():
             return current
         current = parent
 
@@ -392,20 +527,25 @@ def global_settings_mtime_us() -> int | None:
         return None
 
 
-def load_gitignore_spec(project_root: Path) -> GitIgnoreSpec | None:
-    """Load a GitIgnoreSpec for the project's ``.gitignore`` if present."""
+def load_ignore_spec(project_root: Path, filename: str) -> GitIgnoreSpec | None:
+    """Load a GitIgnoreSpec for an ignore file in the project root."""
     from pathspec import GitIgnoreSpec
 
-    gitignore = project_root / ".gitignore"
-    if not gitignore.is_file():
+    ignore_file = project_root / filename
+    if not ignore_file.is_file():
         return None
     try:
-        lines = gitignore.read_text().splitlines()
+        lines = ignore_file.read_text().splitlines()
     except (OSError, UnicodeDecodeError):
         return None
     if not lines:
         return None
     return GitIgnoreSpec.from_lines(lines)
+
+
+def load_gitignore_spec(project_root: Path) -> GitIgnoreSpec | None:
+    """Load a GitIgnoreSpec for the project's ``.gitignore`` if present."""
+    return load_ignore_spec(project_root, ".gitignore")
 
 
 # ---------------------------------------------------------------------------
@@ -429,8 +569,25 @@ def _embedding_settings_to_dict(embedding: EmbeddingSettings) -> dict[str, Any]:
     return d
 
 
+def _rerank_settings_to_dict(rerank: RerankSettings) -> dict[str, Any]:
+    d: dict[str, Any] = {
+        "enabled": rerank.enabled,
+        "provider": rerank.provider,
+        "top_n": rerank.top_n,
+    }
+    if rerank.model is not None:
+        d["model"] = rerank.model
+    if rerank.min_interval_ms is not None:
+        d["min_interval_ms"] = rerank.min_interval_ms
+    if rerank.params:
+        d["params"] = dict(rerank.params)
+    return d
+
+
 def _user_settings_to_dict(settings: UserSettings) -> dict[str, Any]:
     d: dict[str, Any] = {"embedding": _embedding_settings_to_dict(settings.embedding)}
+    if settings.rerank.enabled or settings.rerank.model is not None:
+        d["rerank"] = _rerank_settings_to_dict(settings.rerank)
     if settings.envs:
         d["envs"] = dict(settings.envs)
     return d
@@ -456,14 +613,63 @@ def _user_settings_from_dict(d: dict[str, Any]) -> UserSettings:
     if "query_params" in emb_dict:
         emb_kwargs["query_params"] = dict(emb_dict["query_params"] or {})
     embedding = EmbeddingSettings(**emb_kwargs)
+    rerank_dict = d.get("rerank") or {}
+    rerank = RerankSettings(
+        enabled=bool(rerank_dict.get("enabled", False)),
+        provider=str(rerank_dict.get("provider", "litellm")),
+        model=rerank_dict.get("model"),
+        top_n=int(rerank_dict.get("top_n", 50)),
+        min_interval_ms=rerank_dict.get("min_interval_ms"),
+        params=dict(rerank_dict.get("params") or {}),
+    )
+    if rerank.enabled and not rerank.model:
+        raise ValueError("rerank.enabled is true but rerank.model is missing")
+    if rerank.provider != "litellm":
+        raise ValueError("Only rerank.provider: litellm is currently supported")
+    if rerank.top_n < 1:
+        raise ValueError("rerank.top_n must be >= 1")
     envs = d.get("envs", {})
-    return UserSettings(embedding=embedding, envs=envs)
+    return UserSettings(embedding=embedding, rerank=rerank, envs=envs)
 
 
 def _project_settings_to_dict(settings: ProjectSettings) -> dict[str, Any]:
     d: dict[str, Any] = {
         "include_patterns": settings.include_patterns,
         "exclude_patterns": settings.exclude_patterns,
+        "docs_include_patterns": settings.docs_include_patterns,
+        "docs_exclude_patterns": settings.docs_exclude_patterns,
+        "indexes": {
+            "docs": {
+                "enabled": True,
+                "roots": settings.docs_roots,
+                "include": settings.docs_include_patterns,
+                "exclude": settings.docs_exclude_patterns,
+                "extensions": [".md", ".mdx", ".markdown"],
+                "collection": "project_docs",
+                "chunker": "markdown-v1",
+            },
+            "code": {
+                "enabled": True,
+                "roots": settings.code_roots,
+                "include": settings.include_patterns,
+                "exclude": settings.exclude_patterns,
+                "collection": "project_code",
+                "chunker": "code-ast-v1",
+            },
+        },
+        "scan": {
+            "respect_gitignore": settings.scan.respect_gitignore,
+            "ragignore_file": settings.scan.ragignore_file,
+            "follow_symlinks": settings.scan.follow_symlinks,
+            "max_file_size_kb": settings.scan.max_file_size_kb,
+        },
+        "always_exclude": settings.always_exclude,
+        "search": {
+            "default_mode": settings.search.default_mode,
+            "default_top_k": settings.search.default_top_k,
+            "max_top_k": settings.search.max_top_k,
+            "return_content_max_chars": settings.search.return_content_max_chars,
+        },
     }
     if settings.language_overrides:
         d["language_overrides"] = [
@@ -479,9 +685,43 @@ def _project_settings_from_dict(d: dict[str, Any]) -> ProjectSettings:
         LanguageOverride(ext=lo["ext"], lang=lo["lang"]) for lo in d.get("language_overrides", [])
     ]
     chunkers = [ChunkerMapping(ext=cm["ext"], module=cm["module"]) for cm in d.get("chunkers", [])]
+    indexes = d.get("indexes") or {}
+    docs_index = indexes.get("docs") or {}
+    code_index = indexes.get("code") or {}
+    scan_dict = d.get("scan") or {}
+    search_dict = d.get("search") or {}
     return ProjectSettings(
-        include_patterns=d.get("include_patterns", list(DEFAULT_INCLUDED_PATTERNS)),
-        exclude_patterns=d.get("exclude_patterns", list(DEFAULT_EXCLUDED_PATTERNS)),
+        include_patterns=d.get(
+            "include_patterns", code_index.get("include", list(DEFAULT_INCLUDED_PATTERNS))
+        ),
+        exclude_patterns=d.get(
+            "exclude_patterns", code_index.get("exclude", list(DEFAULT_EXCLUDED_PATTERNS))
+        ),
+        docs_include_patterns=d.get(
+            "docs_include_patterns",
+            docs_index.get("include", list(DEFAULT_DOCS_INCLUDED_PATTERNS)),
+        ),
+        docs_exclude_patterns=d.get(
+            "docs_exclude_patterns",
+            docs_index.get("exclude", list(DEFAULT_DOCS_EXCLUDED_PATTERNS)),
+        ),
+        docs_roots=docs_index.get("roots", list(DEFAULT_DOCS_ROOTS)),
+        code_roots=code_index.get("roots", list(DEFAULT_CODE_ROOTS)),
+        scan=ScanSettings(
+            respect_gitignore=bool(scan_dict.get("respect_gitignore", True)),
+            ragignore_file=str(scan_dict.get("ragignore_file", ".ragignore")),
+            follow_symlinks=bool(scan_dict.get("follow_symlinks", False)),
+            max_file_size_kb=int(scan_dict.get("max_file_size_kb", 512)),
+        ),
+        search=SearchSettings(
+            default_mode=str(search_dict.get("default_mode", DEFAULT_SEARCH_MODE)),
+            default_top_k=int(search_dict.get("default_top_k", DEFAULT_SEARCH_TOP_K)),
+            max_top_k=int(search_dict.get("max_top_k", DEFAULT_SEARCH_MAX_TOP_K)),
+            return_content_max_chars=int(
+                search_dict.get("return_content_max_chars", DEFAULT_RETURN_CONTENT_MAX_CHARS)
+            ),
+        ),
+        always_exclude=d.get("always_exclude", list(FORCED_EXCLUDED_PATTERNS)),
         language_overrides=overrides,
         chunkers=chunkers,
     )
@@ -537,6 +777,21 @@ _INITIAL_ENVS_COMMENT = (
     "#   VOYAGE_API_KEY: ...\n"
 )
 
+_INITIAL_RERANK_COMMENT = (
+    "\n"
+    "# Optional reranker for search result reordering. Disabled by default.\n"
+    "# When enabled, search first retrieves vector candidates, then reranks the\n"
+    "# candidate chunks and fills score_details.rerank_score.\n"
+    "#\n"
+    "# rerank:\n"
+    "#   enabled: true\n"
+    "#   provider: litellm\n"
+    "#   model: cohere/rerank-v3.5\n"
+    "#   top_n: 50\n"
+    "#   min_interval_ms: 300\n"
+    "#   params: {}\n"
+)
+
 # Comment-template blocks inserted after `embedding:` when we don't have
 # curated defaults for the chosen model, so users know the fields exist.
 # Keyed by provider name.
@@ -583,6 +838,7 @@ def save_initial_user_settings(
         hint = _PARAMS_COMMENT_BY_PROVIDER.get(embedding.provider)
         if hint is not None:
             content += hint
+    content += _INITIAL_RERANK_COMMENT
     content += _INITIAL_ENVS_COMMENT
 
     path = user_settings_path()
@@ -592,13 +848,14 @@ def save_initial_user_settings(
 
 
 def load_project_settings(project_root: Path) -> ProjectSettings:
-    """Read ``$PROJECT_ROOT/.cocoindex_code/settings.yml``.
+    """Read project settings, preferring ``$PROJECT_ROOT/.rag4trex.yml``.
 
     Raises ``FileNotFoundError`` if the file does not exist.
     """
-    path = project_settings_path(project_root)
-    if not path.is_file():
-        raise FileNotFoundError(f"Project settings not found: {path}")
+    path = existing_project_settings_path(project_root)
+    if path is None:
+        expected = " or ".join(str(p) for p in project_settings_paths(project_root))
+        raise FileNotFoundError(f"Project settings not found: {expected}")
     try:
         with open(path) as f:
             data = _yaml.safe_load(f)

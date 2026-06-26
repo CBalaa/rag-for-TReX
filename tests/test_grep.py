@@ -344,6 +344,33 @@ def test_grep_respects_gitignore(tmp_path: Path) -> None:
     assert not any(p.endswith("ignored.py") for p in paths)
 
 
+def test_docs_matcher_respects_ragignore_and_forced_excludes(tmp_path: Path) -> None:
+    from cocoindex_code.file_walk import build_docs_matcher, iter_included_files
+    from cocoindex_code.settings import ProjectSettings, save_project_settings
+
+    save_project_settings(
+        tmp_path,
+        ProjectSettings(
+            docs_include_patterns=["**/*.md"],
+            docs_exclude_patterns=[],
+        ),
+    )
+    (tmp_path / ".ragignore").write_text("drafts/\n")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "kept.md").write_text("# Kept\n")
+    (tmp_path / "drafts").mkdir()
+    (tmp_path / "drafts" / "ignored.md").write_text("# Draft\n")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "package.md").write_text("# Package\n")
+
+    matcher = build_docs_matcher(tmp_path)
+    rel_paths = {
+        rel.as_posix()
+        for _, rel in iter_included_files(tmp_path, tmp_path, matcher)
+    }
+    assert rel_paths == {"docs/kept.md"}
+
+
 def test_find_git_root(tmp_path: Path) -> None:
     from cocoindex_code.file_walk import find_git_root
 

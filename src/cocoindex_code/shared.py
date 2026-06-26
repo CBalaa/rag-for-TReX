@@ -146,4 +146,38 @@ class CodeChunk:
     content: str
     start_line: int
     end_line: int
+    char_start: int
+    char_end: int
+    content_hash: str
+    chunk_hash: str
+    chunk_index: int
+    chunker_version: str
+    symbol: str | None
+    symbol_type: str | None
+    signature: str | None
+    parent_symbol: str | None
+    imports: str
+    docstring: str | None
+    embedding: Annotated[npt.NDArray[np.float32], EMBEDDER]
+
+
+@dataclass
+class DocsChunk:
+    """Schema for storing Markdown documentation chunks in SQLite."""
+
+    id: int
+    content_type: str
+    file_path: str
+    heading: str
+    heading_path: str
+    content: str
+    line_start: int
+    line_end: int
+    char_start: int
+    char_end: int
+    content_hash: str
+    chunk_hash: str
+    chunk_index: int
+    chunker_version: str
+    frontmatter: str
     embedding: Annotated[npt.NDArray[np.float32], EMBEDDER]

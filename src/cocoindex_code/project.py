@@ -12,17 +12,25 @@ import cocoindex as coco
 from cocoindex.connectors import sqlite as coco_sqlite
 
 from .chunking import CHUNKER_REGISTRY, ChunkerFn
+from .docs_indexer import docs_indexer_main
 from .indexer import indexer_main
 from .protocol import (
+    DocsSearchHit,
+    DocsSearchResponse,
+    DocsSearchSource,
     IndexingProgress,
     IndexProgressUpdate,
     IndexResponse,
     IndexStreamResponse,
     IndexWaitingNotice,
     ProjectStatusResponse,
+    RepoSearchHit,
+    RepoSearchSource,
     SearchResult,
 )
-from .query import query_codebase
+from .query import query_codebase, query_docs
+from .rag_schema import score_details
+from .reranker import Reranker
 from .settings import (
     cocoindex_db_path as _cocoindex_db_path,
 )
@@ -45,10 +53,15 @@ from .shared import (
 class Project:
     _env: coco.Environment
     _app: coco.App[[], None]
+    _docs_app: coco.App[[], None]
     _project_root: Path
     _index_lock: asyncio.Lock
+    _docs_index_lock: asyncio.Lock
     _initial_index_done: asyncio.Event
+    _initial_docs_index_done: asyncio.Event
+    _reranker: Reranker | None = None
     _indexing_stats: IndexingProgress | None = None
+    _docs_indexing_stats: IndexingProgress | None = None
 
     def close(self) -> None:
         """Close project resources to release file handles (LMDB, SQLite)."""
@@ -66,6 +79,7 @@ class Project:
         self,
         on_progress: Callable[[IndexingProgress], None] | None = None,
         on_started: asyncio.Event | None = None,
+        index_type: str = "code",
     ) -> None:
         """Acquire the index lock, run indexing, and release.
 
@@ -73,8 +87,9 @@ class Project:
         (i.e. indexing has truly begun).  On completion (success or failure)
         ``_initial_index_done`` is set.
         """
-        async with self._index_lock:
-            self._indexing_stats = IndexingProgress(
+        lock = self._docs_index_lock if index_type == "docs" else self._index_lock
+        async with lock:
+            progress = IndexingProgress(
                 num_execution_starts=0,
                 num_unchanged=0,
                 num_adds=0,
@@ -82,19 +97,26 @@ class Project:
                 num_reprocesses=0,
                 num_errors=0,
             )
+            if index_type == "docs":
+                self._docs_indexing_stats = progress
+            else:
+                self._indexing_stats = progress
             if on_started is not None:
                 on_started.set()
-            await self._run_index_inner(on_progress=on_progress)
+            await self._run_index_inner(on_progress=on_progress, index_type=index_type)
 
     async def _run_index_inner(
         self,
         on_progress: Callable[[IndexingProgress], None] | None = None,
+        index_type: str = "code",
     ) -> None:
         """Run indexing (lock must already be held)."""
+        app = self._docs_app if index_type == "docs" else self._app
+        component = "process_docs_file" if index_type == "docs" else "process_file"
         try:
-            handle = self._app.update()
+            handle = app.update()
             async for snapshot in handle.watch():
-                file_stats = snapshot.stats.by_component.get("process_file")
+                file_stats = snapshot.stats.by_component.get(component)
                 if file_stats is not None:
                     progress = IndexingProgress(
                         num_execution_starts=file_stats.num_execution_starts,
@@ -104,40 +126,53 @@ class Project:
                         num_reprocesses=file_stats.num_reprocesses,
                         num_errors=file_stats.num_errors,
                     )
-                    self._indexing_stats = progress
+                    if index_type == "docs":
+                        self._docs_indexing_stats = progress
+                    else:
+                        self._indexing_stats = progress
                     if on_progress is not None:
                         on_progress(progress)
                     await asyncio.sleep(0.1)
         finally:
-            self._initial_index_done.set()
-            self._indexing_stats = None
+            if index_type == "docs":
+                self._initial_docs_index_done.set()
+                self._docs_indexing_stats = None
+            else:
+                self._initial_index_done.set()
+                self._indexing_stats = None
 
-    async def ensure_indexing_started(self) -> None:
+    async def ensure_indexing_started(self, index_type: str = "code") -> None:
         """Kick off background indexing and wait until it has actually started.
 
         Returns once the indexing task holds the lock.  Safe to call multiple
         times — only the first call spawns a task; subsequent calls return
         immediately.
         """
-        if self._initial_index_done.is_set() or self._index_lock.locked():
+        done = self._initial_docs_index_done if index_type == "docs" else self._initial_index_done
+        lock = self._docs_index_lock if index_type == "docs" else self._index_lock
+        if done.is_set() or lock.locked():
             return
         started = asyncio.Event()
-        asyncio.create_task(self.run_index(on_started=started))
+        asyncio.create_task(self.run_index(on_started=started, index_type=index_type))
         await started.wait()
 
-    async def stream_index(self) -> AsyncIterator[IndexStreamResponse]:
+    async def stream_index(self, index_type: str = "code") -> AsyncIterator[IndexStreamResponse]:
         """Run indexing, streaming progress updates and a final IndexResponse.
 
         If the lock is already held, yields ``IndexWaitingNotice`` first.
         The actual indexing runs in a separate task so that client disconnects
         (``GeneratorExit``) do not abort the indexing.
         """
-        if self._index_lock.locked():
+        lock = self._docs_index_lock if index_type == "docs" else self._index_lock
+        if lock.locked():
             yield IndexWaitingNotice()
 
         progress_queue: asyncio.Queue[IndexingProgress] = asyncio.Queue()
         index_task = asyncio.create_task(
-            self.run_index(on_progress=lambda p: progress_queue.put_nowait(p))
+            self.run_index(
+                on_progress=lambda p: progress_queue.put_nowait(p),
+                index_type=index_type,
+            )
         )
 
         try:
@@ -167,11 +202,17 @@ class Project:
         """True if indexing has been started but not yet completed."""
         return not self._initial_index_done.is_set()
 
-    async def wait_for_indexing_done(self) -> None:
+    @property
+    def should_wait_for_docs_indexing(self) -> bool:
+        return not self._initial_docs_index_done.is_set()
+
+    async def wait_for_indexing_done(self, index_type: str = "code") -> None:
         """Wait until initial indexing is complete and no indexing is running."""
-        await self._initial_index_done.wait()
-        if self._index_lock.locked():
-            async with self._index_lock:
+        done = self._initial_docs_index_done if index_type == "docs" else self._initial_index_done
+        lock = self._docs_index_lock if index_type == "docs" else self._index_lock
+        await done.wait()
+        if lock.locked():
+            async with lock:
                 pass
 
     async def search(
@@ -184,16 +225,18 @@ class Project:
     ) -> list[SearchResult]:
         """Search within this project."""
         target_db = _target_sqlite_db_path(self._project_root)
+        fetch_limit = self._candidate_limit(limit, offset) if self._reranker is not None else limit
+        fetch_offset = 0 if self._reranker is not None else offset
         results = await query_codebase(
             query=query,
             target_sqlite_db_path=target_db,
             env=self._env,
-            limit=limit,
-            offset=offset,
+            limit=fetch_limit,
+            offset=fetch_offset,
             languages=languages,
             paths=paths,
         )
-        return [
+        hits = [
             SearchResult(
                 file_path=r.file_path,
                 language=r.language,
@@ -201,9 +244,235 @@ class Project:
                 start_line=r.start_line,
                 end_line=r.end_line,
                 score=r.score,
+                score_details=score_details(r.score),
+                char_start=r.char_start,
+                char_end=r.char_end,
+                content_hash=r.content_hash,
+                chunk_hash=r.chunk_hash,
+                chunk_index=r.chunk_index,
+                chunker_version=r.chunker_version,
+                symbol=r.symbol,
+                symbol_type=r.symbol_type,
+                signature=r.signature,
+                parent_symbol=r.parent_symbol,
+                imports=r.imports or [],
+                docstring=r.docstring,
             )
             for r in results
         ]
+        if self._reranker is None:
+            return hits
+        return await self._rerank_search_results(query, hits, limit=limit, offset=offset)
+
+    async def search_docs(
+        self,
+        query: str,
+        path_prefix: str | None = None,
+        limit: int = 5,
+        offset: int = 0,
+        mode: str = "semantic",
+    ) -> DocsSearchResponse:
+        target_db = _target_sqlite_db_path(self._project_root)
+        fetch_limit = self._candidate_limit(limit, offset) if self._reranker is not None else limit
+        fetch_offset = 0 if self._reranker is not None else offset
+        results = await query_docs(
+            query=query,
+            target_sqlite_db_path=target_db,
+            env=self._env,
+            limit=fetch_limit,
+            offset=fetch_offset,
+            path_prefix=path_prefix,
+        )
+        hits = [
+            DocsSearchHit(
+                content_type=r.content_type,
+                score=r.score,
+                content=r.content,
+                source=DocsSearchSource(
+                    path=r.file_path,
+                    heading=r.heading,
+                    heading_path=r.heading_path,
+                    line_start=r.line_start,
+                    line_end=r.line_end,
+                    char_start=r.char_start,
+                    char_end=r.char_end,
+                    content_hash=r.content_hash,
+                    chunk_hash=r.chunk_hash,
+                    chunk_index=r.chunk_index,
+                ),
+                score_details=score_details(r.score),
+                metadata={
+                    "frontmatter": r.frontmatter,
+                    "extension": Path(r.file_path).suffix,
+                    "chunker_version": r.chunker_version,
+                    "embedding_version": None,
+                },
+            )
+            for r in results
+        ]
+        if self._reranker is not None:
+            hits = await self._rerank_repo_hits(query, hits, limit=limit, offset=offset)
+        return DocsSearchResponse(
+            success=True,
+            query=query,
+            hits=hits,
+            total_returned=len(hits),
+            offset=offset,
+            top_k=limit,
+            mode=mode,
+        )
+
+    async def search_repo(
+        self,
+        query: str,
+        content_type: str | None = None,
+        path_prefix: str | None = None,
+        limit: int = 5,
+        offset: int = 0,
+    ) -> list[RepoSearchHit]:
+        hits: list[RepoSearchHit] = []
+        normalized_type = content_type.lower() if content_type else None
+        if normalized_type not in (None, "code", "docs", "documentation"):
+            raise ValueError("content_type must be one of: code, docs, documentation")
+
+        if normalized_type in (None, "code"):
+            code_paths: list[str] | None = None
+            if path_prefix:
+                if any(ch in path_prefix for ch in "*?["):
+                    code_paths = [path_prefix]
+                elif path_prefix.endswith("/"):
+                    code_paths = [f"{path_prefix.rstrip('/')}/*"]
+                else:
+                    code_paths = [f"{path_prefix}*"]
+            code_results = await query_codebase(
+                query=query,
+                target_sqlite_db_path=_target_sqlite_db_path(self._project_root),
+                env=self._env,
+                limit=self._candidate_limit(limit, offset),
+                offset=0,
+                paths=code_paths,
+            )
+            hits.extend(
+                RepoSearchHit(
+                    content_type="code",
+                    score=r.score,
+                    content=r.content,
+                    source=RepoSearchSource(
+                        path=r.file_path,
+                        line_start=r.start_line,
+                        line_end=r.end_line,
+                        language=r.language,
+                        symbol=r.symbol,
+                        symbol_type=r.symbol_type,
+                        signature=r.signature,
+                        parent_symbol=r.parent_symbol,
+                        char_start=r.char_start,
+                        char_end=r.char_end,
+                        content_hash=r.content_hash,
+                        chunk_hash=r.chunk_hash,
+                        chunk_index=r.chunk_index,
+                    ),
+                    score_details=score_details(r.score),
+                    metadata={
+                        "imports": r.imports or [],
+                        "docstring": r.docstring,
+                        "chunker_version": r.chunker_version,
+                        "embedding_version": None,
+                    },
+                )
+                for r in code_results
+            )
+
+        if normalized_type in (None, "docs", "documentation"):
+            docs_results = await query_docs(
+                query=query,
+                target_sqlite_db_path=_target_sqlite_db_path(self._project_root),
+                env=self._env,
+                limit=self._candidate_limit(limit, offset),
+                offset=0,
+                path_prefix=path_prefix,
+            )
+            hits.extend(
+                RepoSearchHit(
+                    content_type="documentation",
+                    score=r.score,
+                    content=r.content,
+                    source=RepoSearchSource(
+                        path=r.file_path,
+                        line_start=r.line_start,
+                        line_end=r.line_end,
+                        heading=r.heading,
+                        heading_path=r.heading_path,
+                        char_start=r.char_start,
+                        char_end=r.char_end,
+                        content_hash=r.content_hash,
+                        chunk_hash=r.chunk_hash,
+                        chunk_index=r.chunk_index,
+                    ),
+                    score_details=score_details(r.score),
+                    metadata={
+                        "frontmatter": r.frontmatter,
+                        "extension": Path(r.file_path).suffix,
+                        "chunker_version": r.chunker_version,
+                        "embedding_version": None,
+                    },
+                )
+                for r in docs_results
+            )
+
+        hits.sort(key=lambda hit: hit.score, reverse=True)
+        if self._reranker is None:
+            return hits[offset : offset + limit]
+        return await self._rerank_repo_hits(query, hits, limit=limit, offset=offset)
+
+    async def _rerank_search_results(
+        self,
+        query: str,
+        hits: list[SearchResult],
+        *,
+        limit: int,
+        offset: int,
+    ) -> list[SearchResult]:
+        assert self._reranker is not None
+        reranked = await self._reranker.rerank(
+            query,
+            hits,
+            content_getter=lambda hit: hit.content,
+            top_n=self._candidate_limit(limit, offset),
+        )
+        results: list[SearchResult] = []
+        for hit, rerank_score in reranked[offset : offset + limit]:
+            hit.score = rerank_score
+            hit.score_details["rerank_score"] = rerank_score
+            results.append(hit)
+        return results
+
+    async def _rerank_repo_hits(
+        self,
+        query: str,
+        hits: list[RepoSearchHit] | list[DocsSearchHit],
+        *,
+        limit: int,
+        offset: int,
+    ) -> Any:
+        assert self._reranker is not None
+        reranked = await self._reranker.rerank(
+            query,
+            list(hits),
+            content_getter=lambda hit: hit.content,
+            top_n=self._candidate_limit(limit, offset),
+        )
+        results = []
+        for hit, rerank_score in reranked[offset : offset + limit]:
+            hit.score = rerank_score
+            hit.score_details["rerank_score"] = rerank_score
+            results.append(hit)
+        return results
+
+    def _candidate_limit(self, limit: int, offset: int) -> int:
+        if self._reranker is None:
+            return limit + offset
+        return max(limit + offset, int(getattr(self._reranker, "top_n", limit + offset)))
 
     # ------------------------------------------------------------------
     # Status
@@ -213,6 +482,7 @@ class Project:
         """Get index stats by querying the SQLite database."""
         db = self._env.get_context(SQLITE_DB)
         index_exists = True
+        docs_index_exists = True
         try:
             with db.readonly() as conn:
                 total_chunks = conn.execute("SELECT COUNT(*) FROM code_chunks_vec").fetchone()[0]
@@ -228,9 +498,25 @@ class Project:
             total_chunks = 0
             total_files = 0
             lang_rows = []
+        try:
+            with db.readonly() as conn:
+                docs_total_chunks = conn.execute(
+                    "SELECT COUNT(*) FROM docs_chunks_vec"
+                ).fetchone()[0]
+                docs_total_files = conn.execute(
+                    "SELECT COUNT(DISTINCT file_path) FROM docs_chunks_vec"
+                ).fetchone()[0]
+        except sqlite3.OperationalError:
+            docs_index_exists = False
+            docs_total_chunks = 0
+            docs_total_files = 0
 
-        is_indexing = self._index_lock.locked()
-        progress = self._indexing_stats if is_indexing else None
+        is_indexing = self._index_lock.locked() or self._docs_index_lock.locked()
+        progress = (
+            self._indexing_stats
+            if self._index_lock.locked()
+            else self._docs_indexing_stats if self._docs_index_lock.locked() else None
+        )
         return ProjectStatusResponse(
             indexing=is_indexing,
             total_chunks=total_chunks,
@@ -238,6 +524,9 @@ class Project:
             languages={lang: cnt for lang, cnt in lang_rows},
             progress=progress,
             index_exists=index_exists,
+            docs_total_chunks=docs_total_chunks,
+            docs_total_files=docs_total_files,
+            docs_index_exists=docs_index_exists,
         )
 
     # ------------------------------------------------------------------
@@ -262,6 +551,7 @@ class Project:
         embedder: Embedder,
         indexing_params: dict[str, Any],
         query_params: dict[str, Any],
+        reranker: Reranker | None = None,
         chunker_registry: dict[str, ChunkerFn] | None = None,
     ) -> Project:
         """Create a project with explicit embedder and per-call params.
@@ -278,6 +568,7 @@ class Project:
                 no extras.
             query_params: Extra kwargs spread into ``embedder.embed()`` for the
                 query side.
+            reranker: Optional reranker used after vector retrieval.
             chunker_registry: Optional mapping of file suffix (e.g. ``".toml"``)
                 to a ``ChunkerFn``. When a suffix matches, the registered
                 chunker is called instead of the built-in splitter.
@@ -313,7 +604,17 @@ class Project:
         result = Project.__new__(Project)
         result._env = env
         result._app = app
+        result._docs_app = coco.App(
+            coco.AppConfig(
+                name="CocoIndexDocs",
+                environment=env,
+            ),
+            docs_indexer_main,
+        )
         result._project_root = project_root
         result._index_lock = asyncio.Lock()
+        result._docs_index_lock = asyncio.Lock()
         result._initial_index_done = asyncio.Event()
+        result._initial_docs_index_done = asyncio.Event()
+        result._reranker = reranker
         return result

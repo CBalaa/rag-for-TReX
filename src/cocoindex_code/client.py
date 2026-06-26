@@ -29,6 +29,7 @@ from .protocol import (
     DaemonEnvRequest,
     DaemonEnvResponse,
     DaemonStatusResponse,
+    DocsSearchResponse,
     DoctorCheckResult,
     DoctorRequest,
     DoctorResponse,
@@ -44,8 +45,11 @@ from .protocol import (
     ProjectStatusResponse,
     RemoveProjectRequest,
     RemoveProjectResponse,
+    RepoSearchResponse,
     Request,
     Response,
+    SearchDocsRequest,
+    SearchRepoRequest,
     SearchRequest,
     SearchResponse,
     StopRequest,
@@ -258,12 +262,15 @@ def index(
     project_root: str,
     on_progress: Callable[[IndexingProgress], None] | None = None,
     on_waiting: Callable[[], None] | None = None,
+    index_type: str = "code",
 ) -> IndexResponse:
     """Request indexing with streaming progress. Blocks until complete."""
     project_root = normalize_input_path(project_root)
     conn = _connect_and_handshake()
     try:
-        conn.send_bytes(encode_request(IndexRequest(project_root=project_root)))
+        conn.send_bytes(
+            encode_request(IndexRequest(project_root=project_root, index_type=index_type))
+        )
         while True:
             try:
                 data = conn.recv_bytes()
@@ -294,6 +301,7 @@ def search(
     paths: list[str] | None = None,
     limit: int = 5,
     offset: int = 0,
+    mode: str = "semantic",
     on_waiting: Callable[[], None] | None = None,
 ) -> SearchResponse:
     """Search the codebase.
@@ -314,6 +322,7 @@ def search(
                     paths=paths,
                     limit=limit,
                     offset=offset,
+                    mode=mode,
                 )
             )
         )
@@ -330,6 +339,94 @@ def search(
                     on_waiting()
                 continue
             if isinstance(resp, SearchResponse):
+                return resp
+            raise RuntimeError(f"Unexpected response: {type(resp).__name__}")
+    finally:
+        conn.close()
+
+
+def search_docs(
+    project_root: str,
+    query: str,
+    path_prefix: str | None = None,
+    limit: int = 5,
+    offset: int = 0,
+    mode: str = "semantic",
+    on_waiting: Callable[[], None] | None = None,
+) -> DocsSearchResponse:
+    project_root = normalize_input_path(project_root)
+    conn = _connect_and_handshake()
+    try:
+        conn.send_bytes(
+            encode_request(
+                SearchDocsRequest(
+                    project_root=project_root,
+                    query=query,
+                    path_prefix=path_prefix,
+                    limit=limit,
+                    offset=offset,
+                    mode=mode,
+                )
+            )
+        )
+        while True:
+            try:
+                data = conn.recv_bytes()
+            except EOFError:
+                raise RuntimeError("Connection to daemon lost during docs search")
+            resp = decode_response(data)
+            if isinstance(resp, ErrorResponse):
+                raise RuntimeError(f"Daemon error: {resp.message}")
+            if isinstance(resp, IndexWaitingNotice):
+                if on_waiting is not None:
+                    on_waiting()
+                continue
+            if isinstance(resp, DocsSearchResponse):
+                return resp
+            raise RuntimeError(f"Unexpected response: {type(resp).__name__}")
+    finally:
+        conn.close()
+
+
+def search_repo(
+    project_root: str,
+    query: str,
+    content_type: str | None = None,
+    path_prefix: str | None = None,
+    limit: int = 5,
+    offset: int = 0,
+    mode: str = "semantic",
+    on_waiting: Callable[[], None] | None = None,
+) -> RepoSearchResponse:
+    project_root = normalize_input_path(project_root)
+    conn = _connect_and_handshake()
+    try:
+        conn.send_bytes(
+            encode_request(
+                SearchRepoRequest(
+                    project_root=project_root,
+                    query=query,
+                    content_type=content_type,
+                    path_prefix=path_prefix,
+                    limit=limit,
+                    offset=offset,
+                    mode=mode,
+                )
+            )
+        )
+        while True:
+            try:
+                data = conn.recv_bytes()
+            except EOFError:
+                raise RuntimeError("Connection to daemon lost during repo search")
+            resp = decode_response(data)
+            if isinstance(resp, ErrorResponse):
+                raise RuntimeError(f"Daemon error: {resp.message}")
+            if isinstance(resp, IndexWaitingNotice):
+                if on_waiting is not None:
+                    on_waiting()
+                continue
+            if isinstance(resp, RepoSearchResponse):
                 return resp
             raise RuntimeError(f"Unexpected response: {type(resp).__name__}")
     finally:

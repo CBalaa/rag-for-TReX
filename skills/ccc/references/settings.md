@@ -1,126 +1,105 @@
-# ccc Settings
+# ccc Settings Reference
 
-Configuration lives in two YAML files, both created automatically by `ccc init`.
+Use this reference only to understand where RAG configuration lives. The skill
+itself should use MCP tools for discovery and normal file-reading tools for
+authoritative source content.
 
-## User-Level Settings (`~/.cocoindex_code/global_settings.yml`)
+## User Settings
 
-Shared across all projects. Controls the embedding model and extra environment variables for the daemon.
+User-level settings live at:
+
+```text
+~/.cocoindex_code/global_settings.yml
+```
+
+They configure embedding and rerank models:
 
 ```yaml
 embedding:
-  provider: sentence-transformers   # or "litellm" (default when provider is omitted)
+  provider: sentence-transformers
   model: Snowflake/snowflake-arctic-embed-xs
-  device: mps                       # optional: cpu, cuda, mps (auto-detected if omitted)
-  min_interval_ms: 300              # optional: pace LiteLLM embedding requests to reduce 429s; defaults to 5 for LiteLLM
+  device: cpu
 
-envs:                               # extra environment variables for the daemon
-  OPENAI_API_KEY: your-key          # only needed if not already in the shell environment
-```
+rerank:
+  enabled: false
+  provider: litellm
+  model: cohere/rerank-v3.5
+  top_n: 50
 
-### Fields
-
-| Field | Description |
-|-------|-------------|
-| `embedding.provider` | `sentence-transformers` for local models, `litellm` (or omit) for cloud/remote models |
-| `embedding.model` | Model identifier — format depends on provider (see examples below) |
-| `embedding.device` | Optional. `cpu`, `cuda`, or `mps`. Auto-detected if omitted. Only relevant for `sentence-transformers`. |
-| `embedding.min_interval_ms` | Optional. Minimum delay between LiteLLM embedding requests in milliseconds. Defaults to `5` for LiteLLM and is ignored by `sentence-transformers`. Set explicitly to override the default. |
-| `envs` | Key-value map of environment variables injected into the daemon. Use for API keys not already in the shell environment. |
-
-### Embedding Model Examples
-
-**Local (sentence-transformers, no API key needed):**
-
-```yaml
-embedding:
-  provider: sentence-transformers
-  model: Snowflake/snowflake-arctic-embed-xs        # default, lightweight
-```
-
-```yaml
-embedding:
-  provider: sentence-transformers
-  model: nomic-ai/CodeRankEmbed                     # better code retrieval, needs GPU (~1 GB VRAM)
-```
-
-**Ollama (local):**
-
-```yaml
-embedding:
-  model: ollama/nomic-embed-text
-```
-
-**OpenAI:**
-
-```yaml
-embedding:
-  model: text-embedding-3-small
-  min_interval_ms: 300
 envs:
-  OPENAI_API_KEY: your-api-key
+  OPENAI_API_KEY: your-key
+  COHERE_API_KEY: your-key
 ```
 
-**Gemini:**
+Switching embedding models changes vector dimensions, so the repository index
+must be rebuilt by the user or by the service workflow that owns indexing.
+
+## Project Settings
+
+Project-level RAG settings live at:
+
+```text
+<repo>/.rag4trex.yml
+```
+
+The legacy fallback path is:
+
+```text
+<repo>/.cocoindex_code/settings.yml
+```
+
+The project file controls docs/code roots, include patterns, exclude patterns,
+`.gitignore` handling, `.ragignore`, and forced safety excludes:
 
 ```yaml
-embedding:
-  model: gemini/gemini-embedding-001
-envs:
-  GEMINI_API_KEY: your-api-key
+indexes:
+  docs:
+    enabled: true
+    roots: [docs, README.md]
+    include: ["docs/**/*.md", "docs/**/*.mdx", "README.md", "**/*.markdown"]
+    exclude: ["docs/archive/**", "**/*.generated.md"]
+    extensions: [".md", ".mdx", ".markdown"]
+    collection: "project_docs"
+    chunker: "markdown-v1"
+
+  code:
+    enabled: true
+    roots: [src, packages, tests, scripts]
+    include: ["src/**", "packages/**", "tests/**", "scripts/**"]
+    exclude: ["**/*.generated.*", "**/fixtures/**", "**/snapshots/**"]
+    collection: "project_code"
+    chunker: "code-ast-v1"
+
+scan:
+  respect_gitignore: true
+  ragignore_file: ".ragignore"
+  follow_symlinks: false
+  max_file_size_kb: 512
+
+always_exclude:
+  - ".git/**"
+  - "node_modules/**"
+  - "vendor/**"
+  - "venv/**"
+  - ".venv/**"
+  - "dist/**"
+  - "build/**"
+  - "coverage/**"
+  - ".cache/**"
+  - "__pycache__/**"
+  - "**/.env"
+  - "**/*.pem"
+  - "**/*.key"
+  - "**/secrets/**"
+  - "**/*.sqlite"
+  - "**/*.db"
+
+search:
+  default_mode: "semantic"
+  default_top_k: 8
+  max_top_k: 50
+  return_content_max_chars: 4000
 ```
 
-**Voyage (code-optimized):**
-
-```yaml
-embedding:
-  model: voyage/voyage-code-3
-envs:
-  VOYAGE_API_KEY: your-api-key
-```
-
-For the full list of supported cloud providers and model identifiers, see [LiteLLM Embedding Models](https://docs.litellm.ai/docs/embedding/supported_embedding).
-
-### Important
-
-Switching embedding models changes vector dimensions — you must re-index after changing the model:
-
-```bash
-ccc reset && ccc index
-```
-
-## Project-Level Settings (`<project>/.cocoindex_code/settings.yml`)
-
-Per-project. Controls which files to index. Created by `ccc init` and automatically added to `.gitignore`.
-
-```yaml
-include_patterns:
-  - "**/*.py"
-  - "**/*.js"
-  - "**/*.ts"
-  # ... (sensible defaults for 28+ file types)
-
-exclude_patterns:
-  - "**/.*"              # hidden directories
-  - "**/__pycache__"
-  - "**/node_modules"
-  - "**/dist"
-  # ...
-
-language_overrides:
-  - ext: inc             # treat .inc files as PHP
-    lang: php
-```
-
-### Fields
-
-| Field | Description |
-|-------|-------------|
-| `include_patterns` | Glob patterns for files to index. Defaults cover common languages (Python, JS/TS, Rust, Go, Java, C/C++, C#, SQL, Shell, Markdown, PHP, Lua, etc.). |
-| `exclude_patterns` | Glob patterns for files/directories to skip. Defaults exclude hidden dirs, `node_modules`, `dist`, `__pycache__`, `vendor`, etc. |
-| `language_overrides` | List of `{ext, lang}` pairs to override language detection for specific file extensions. |
-
-### Editing Tips
-
-- To index additional file types, append glob patterns to `include_patterns` (e.g. `"**/*.proto"`).
-- To exclude a directory, append to `exclude_patterns` (e.g. `"**/generated"`).
-- After editing, run `ccc index` to re-index with the new settings.
+`always_exclude` is a safety boundary and should not be overridden by ordinary
+include rules.

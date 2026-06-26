@@ -4,7 +4,7 @@ Each ``[section]`` header starts a new chunk, keeping the section header
 and its key-value pairs together.  This produces semantically coherent units
 instead of the arbitrary line-window slices from the default splitter.
 
-Register in ``.cocoindex_code/settings.yml``::
+Register in ``.rag4trex.yml``::
 
     chunkers:
       - ext: toml

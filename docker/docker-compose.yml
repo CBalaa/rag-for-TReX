@@ -1,4 +1,4 @@
-# cocoindex-code — Docker Compose quickstart.
+# rag4trex — Docker Compose quickstart.
 #
 #   # macOS / Windows
 #   docker compose up -d
@@ -11,13 +11,13 @@
 # directory instead.
 #
 # Override the image via COCOINDEX_CODE_IMAGE — for example:
-#   COCOINDEX_CODE_IMAGE=cocoindex/cocoindex-code:full docker compose up -d
-#   COCOINDEX_CODE_IMAGE=ghcr.io/cocoindex-io/cocoindex-code:latest docker compose up -d
+#   COCOINDEX_CODE_IMAGE=rag4trex/rag4trex:full docker compose up -d
+#   COCOINDEX_CODE_IMAGE=ghcr.io/cbalaa/rag4trex:latest docker compose up -d
 
 services:
-  cocoindex-code:
-    image: ${COCOINDEX_CODE_IMAGE:-cocoindex/cocoindex-code:latest}
-    container_name: cocoindex-code
+  rag4trex:
+    image: ${COCOINDEX_CODE_IMAGE:-rag4trex/rag4trex:latest}
+    container_name: rag4trex
     volumes:
       - ${COCOINDEX_HOST_WORKSPACE:-${HOME}}:/workspace
       - cocoindex-data:/var/cocoindex

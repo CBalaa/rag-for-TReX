@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import functools
+import importlib.resources
+import json
 import os
+import shutil
 import sys
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
@@ -15,22 +19,27 @@ import typer as _typer
 if TYPE_CHECKING:
     from .grep import FileMatches, GrepWarning
     from .protocol import (
+        DocsSearchResponse,
         DoctorCheckResult,
         IndexingProgress,
         ProjectStatusResponse,
+        RepoSearchResponse,
         SearchResponse,
     )
 
+from .rag_schema import locate_response_to_dict, search_response_to_dict
 from .settings import (
     DEFAULT_ST_MODEL,
     EmbeddingSettings,
     cocoindex_db_path,
     default_project_settings,
+    existing_project_settings_path,
     find_parent_with_marker,
     find_project_root,
     format_path_for_display,
     normalize_input_path,
     project_settings_path,
+    project_settings_paths,
     resolve_db_dir,
     save_initial_user_settings,
     save_project_settings,
@@ -123,6 +132,40 @@ def _catch_daemon_start_error(func: _F) -> _F:
     return wrapper  # type: ignore[return-value]
 
 
+@contextmanager
+def _skill_source_path() -> Iterator[Path]:
+    """Yield the bundled ccc skill directory.
+
+    Wheels include the skill as package data. Source checkouts use the root
+    ``skills/ccc`` directory so contributors do not need to keep a copied
+    package-resource tree in sync by hand.
+    """
+    packaged = importlib.resources.files("cocoindex_code").joinpath("resources/skills/ccc")
+    with importlib.resources.as_file(packaged) as packaged_path:
+        if packaged_path.is_dir():
+            yield packaged_path
+            return
+
+    checkout_path = Path(__file__).resolve().parents[2] / "skills" / "ccc"
+    if checkout_path.is_dir():
+        yield checkout_path
+        return
+
+    raise FileNotFoundError("bundled ccc skill directory was not found")
+
+
+def _remove_existing_skill_dir(path: Path) -> None:
+    """Remove an existing skill install target after a narrow safety check."""
+    if not path.exists():
+        return
+    if path.name != "ccc":
+        raise ValueError(f"Refusing to remove non-ccc path: {path}")
+    if path.is_dir():
+        shutil.rmtree(path)
+        return
+    path.unlink()
+
+
 def resolve_default_path(project_root: Path) -> str | None:
     """Compute default ``--path`` filter from CWD relative to project root."""
     cwd = Path.cwd().resolve()
@@ -165,6 +208,10 @@ def print_index_stats(status: ProjectStatusResponse) -> None:
         _typer.echo("  Languages:")
         for lang, count in sorted(status.languages.items(), key=lambda x: -x[1]):
             _typer.echo(f"    {lang}: {count} chunks")
+    if status.docs_index_exists:
+        _typer.echo("  Docs:")
+        _typer.echo(f"    Chunks: {status.docs_total_chunks}")
+        _typer.echo(f"    Files:  {status.docs_total_files}")
 
 
 def print_search_results(response: SearchResponse) -> None:
@@ -183,7 +230,19 @@ def print_search_results(response: SearchResponse) -> None:
         _typer.echo(r.content)
 
 
-def _run_index_with_progress(project_root: str) -> None:
+def _docs_response_to_dict(response: DocsSearchResponse) -> dict[str, object]:
+    return search_response_to_dict(response, index="docs")
+
+
+def _repo_response_to_dict(response: RepoSearchResponse) -> dict[str, object]:
+    return search_response_to_dict(response, index=response.index)
+
+
+def _print_json(data: object) -> None:
+    _typer.echo(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def _run_index_with_progress(project_root: str, index_type: str = "code") -> None:
     """Run indexing with streaming progress display. Exits on failure."""
     from rich.console import Console as _Console
     from rich.live import Live as _Live
@@ -210,7 +269,12 @@ def _run_index_with_progress(project_root: str) -> None:
             live.update(_Spinner("dots", last_progress_line))
 
         try:
-            resp = _client.index(project_root, on_progress=_on_progress, on_waiting=_on_waiting)
+            resp = _client.index(
+                project_root,
+                on_progress=_on_progress,
+                on_waiting=_on_waiting,
+                index_type=index_type,
+            )
         except RuntimeError as e:
             live.stop()
             # Let DaemonStartError propagate to the decorator for consistent handling.
@@ -235,6 +299,7 @@ def _search_with_wait_spinner(
     paths: list[str] | None = None,
     limit: int = 10,
     offset: int = 0,
+    mode: str = "semantic",
 ) -> SearchResponse:
     """Run search, showing a spinner if waiting for load-time indexing."""
     from rich.console import Console as _Console
@@ -260,6 +325,7 @@ def _search_with_wait_spinner(
             paths=paths,
             limit=limit,
             offset=offset,
+            mode=mode,
             on_waiting=_on_waiting,
         )
 
@@ -583,7 +649,7 @@ def init(
         _setup_user_settings_interactive(litellm_model)
 
     # Check if already initialized
-    if settings_file.is_file():
+    if existing_project_settings_path(cwd) is not None:
         _typer.echo("Project already initialized.")
         return
 
@@ -600,7 +666,7 @@ def init(
             raise _typer.Exit(code=1)
 
     # Create project settings
-    save_project_settings(cwd, default_project_settings())
+    settings_file = save_project_settings(cwd, default_project_settings())
     _typer.echo(f"Created project settings: {format_path_for_display(settings_file)}")
 
     # Add to .gitignore
@@ -610,15 +676,77 @@ def init(
     _typer.echo("Run `ccc index` to build the index.")
 
 
+@app.command("install-skill")
+def install_skill(
+    force: bool = _typer.Option(
+        False,
+        "-f",
+        "--force",
+        help="Overwrite an existing ccc skill install.",
+    ),
+    codex_home: Path | None = _typer.Option(
+        None,
+        "--codex-home",
+        help="Codex home directory. Defaults to $CODEX_HOME or ~/.codex.",
+    ),
+    target_dir: Path | None = _typer.Option(
+        None,
+        "--target-dir",
+        help="Install into this skills directory instead of CODEX_HOME/skills.",
+    ),
+) -> None:
+    """Install the bundled ccc Codex skill into the local Codex skills directory."""
+    if target_dir is not None and codex_home is not None:
+        _typer.echo("Error: pass either --target-dir or --codex-home, not both.", err=True)
+        raise _typer.Exit(code=1)
+
+    if target_dir is None:
+        home = codex_home or Path(os.environ.get("CODEX_HOME", "~/.codex"))
+        target_dir = home.expanduser() / "skills"
+    else:
+        target_dir = target_dir.expanduser()
+
+    destination = target_dir / "ccc"
+    if destination.exists() and not force:
+        _typer.echo(
+            f"Error: skill already exists at {format_path_for_display(destination)}.\n"
+            "Pass --force to replace it.",
+            err=True,
+        )
+        raise _typer.Exit(code=1)
+
+    try:
+        with _skill_source_path() as source:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            if force:
+                _remove_existing_skill_dir(destination)
+            shutil.copytree(source, destination)
+    except OSError as e:
+        _typer.echo(f"Error: failed to install ccc skill: {e}", err=True)
+        raise _typer.Exit(code=1)
+
+    _typer.echo(f"Installed ccc skill to {format_path_for_display(destination)}")
+
+
 @app.command()
 @_catch_daemon_start_error
-def index() -> None:
+def index(
+    index_type: str = _typer.Option(
+        "code",
+        "--type",
+        help="Index type to update: code, docs, or all.",
+    ),
+) -> None:
     """Create/update index for the codebase."""
     from . import client as _client
 
+    if index_type not in {"code", "docs", "all"}:
+        _typer.echo("Error: --type must be one of: code, docs, all", err=True)
+        raise _typer.Exit(code=1)
+
     project_root = str(require_project_root())
     print_project_header(project_root)
-    _run_index_with_progress(project_root)
+    _run_index_with_progress(project_root, index_type=index_type)
     print_index_stats(_client.project_status(project_root))
 
 
@@ -631,6 +759,8 @@ def search(
     offset: int = _typer.Option(0, "--offset", help="Number of results to skip"),
     limit: int = _typer.Option(10, "--limit", help="Maximum results to return"),
     refresh: bool = _typer.Option(False, "--refresh", help="Refresh index before searching"),
+    mode: str = _typer.Option("semantic", "--mode", help="Search mode: semantic, keyword, hybrid"),
+    json_output: bool = _typer.Option(False, "--json", help="Emit structured JSON"),
 ) -> None:
     """Semantic search across the codebase."""
     project_root = str(require_project_root())
@@ -655,8 +785,145 @@ def search(
         paths=paths,
         limit=limit,
         offset=offset,
+        mode=mode,
     )
+    if json_output:
+        _print_json(search_response_to_dict(resp, index="code"))
+        return
     print_search_results(resp)
+
+
+@app.command("search-docs")
+@_catch_daemon_start_error
+def search_docs(
+    query: list[str] = _typer.Argument(..., help="Search query"),
+    path_prefix: str | None = _typer.Option(None, "--path-prefix", help="Filter by path prefix"),
+    top_k: int = _typer.Option(10, "--top-k", "--limit", help="Maximum results to return"),
+    mode: str = _typer.Option("semantic", "--mode", help="Search mode: semantic, keyword, hybrid"),
+    json_output: bool = _typer.Option(False, "--json", help="Emit structured JSON"),
+    refresh: bool = _typer.Option(False, "--refresh", help="Refresh docs index before searching"),
+) -> None:
+    """Semantic search across indexed Markdown documentation."""
+    from . import client as _client
+
+    project_root = str(require_project_root())
+    query_str = " ".join(query)
+    if refresh:
+        _run_index_with_progress(project_root, index_type="docs")
+
+    resp = _client.search_docs(
+        project_root=project_root,
+        query=query_str,
+        path_prefix=path_prefix,
+        limit=top_k,
+        mode=mode,
+    )
+    data = _docs_response_to_dict(resp)
+    if json_output:
+        _print_json(data)
+        return
+    if not resp.hits:
+        _typer.echo("No results found.")
+        return
+    for i, hit in enumerate(resp.hits, 1):
+        source = hit.source
+        _typer.echo(f"\n--- Result {i} (score: {hit.score:.3f}) ---")
+        _typer.echo(f"File: {source.path}:{source.line_start}-{source.line_end}")
+        if source.heading_path:
+            _typer.echo(f"Heading: {' > '.join(source.heading_path)}")
+        _typer.echo(hit.content)
+
+
+@app.command("search-repo")
+@_catch_daemon_start_error
+def search_repo(
+    query: list[str] = _typer.Argument(..., help="Search query"),
+    content_type: str | None = _typer.Option(
+        None,
+        "--type",
+        help="Filter by content type: code or docs.",
+    ),
+    path_prefix: str | None = _typer.Option(None, "--path-prefix", help="Filter by path prefix"),
+    top_k: int = _typer.Option(10, "--top-k", "--limit", help="Maximum results to return"),
+    mode: str = _typer.Option("semantic", "--mode", help="Search mode: semantic, keyword, hybrid"),
+    json_output: bool = _typer.Option(False, "--json", help="Emit structured JSON"),
+    refresh: bool = _typer.Option(False, "--refresh", help="Refresh all indexes before searching"),
+) -> None:
+    """Semantic search across code and Markdown documentation indexes."""
+    from . import client as _client
+
+    if content_type not in {None, "code", "docs", "documentation"}:
+        _typer.echo("Error: --type must be code or docs", err=True)
+        raise _typer.Exit(code=1)
+
+    project_root = str(require_project_root())
+    query_str = " ".join(query)
+    if refresh:
+        _run_index_with_progress(project_root, index_type="all")
+
+    resp = _client.search_repo(
+        project_root=project_root,
+        query=query_str,
+        content_type=content_type,
+        path_prefix=path_prefix,
+        limit=top_k,
+        mode=mode,
+    )
+    data = _repo_response_to_dict(resp)
+    if json_output:
+        _print_json(data)
+        return
+    if not resp.hits:
+        _typer.echo("No results found.")
+        return
+    for i, hit in enumerate(resp.hits, 1):
+        source = hit.source
+        label = source.language if hit.content_type == "code" else source.heading
+        _typer.echo(f"\n--- Result {i} (score: {hit.score:.3f}) [{hit.content_type}] ---")
+        _typer.echo(f"File: {source.path}:{source.line_start}-{source.line_end}")
+        if label:
+            _typer.echo(f"Context: {label}")
+        _typer.echo(hit.content)
+
+
+@app.command("locate")
+@_catch_daemon_start_error
+def locate(
+    query: list[str] = _typer.Argument(..., help="Search query"),
+    content_type: str | None = _typer.Option(
+        None,
+        "--type",
+        help="Filter by content type: code or docs.",
+    ),
+    path_prefix: str | None = _typer.Option(None, "--path-prefix", help="Filter by path prefix"),
+    top_k: int = _typer.Option(10, "--top-k", "--limit", help="Maximum results to return"),
+    json_output: bool = _typer.Option(False, "--json", help="Emit structured JSON"),
+) -> None:
+    """Locate likely files or sections across repository indexes."""
+    if not json_output:
+        search_repo(
+            query=query,
+            content_type=content_type,
+            path_prefix=path_prefix,
+            top_k=top_k,
+            mode="semantic",
+            json_output=False,
+            refresh=False,
+        )
+        return
+    from . import client as _client
+
+    project_root = str(require_project_root())
+    query_str = " ".join(query)
+    resp = _client.search_repo(
+        project_root=project_root,
+        query=query_str,
+        content_type=content_type,
+        path_prefix=path_prefix,
+        limit=top_k,
+    )
+    index = "repo" if content_type is None else content_type
+    _print_json(locate_response_to_dict(resp, index=index))
 
 
 @app.command()
@@ -732,6 +999,77 @@ def grep(
         _typer.echo("No matches found.")
 
 
+@app.command("files")
+def files(
+    explain: str | None = _typer.Option(
+        None,
+        "--explain",
+        help="Explain why a path is indexed or skipped",
+    ),
+    index_type: str = _typer.Option("code", "--type", help="Index type: code or docs"),
+    json_output: bool = _typer.Option(False, "--json", help="Emit structured JSON"),
+) -> None:
+    """Inspect file inclusion decisions."""
+    if explain is None:
+        _typer.echo("Pass --explain PATH to inspect a file.")
+        raise _typer.Exit(code=1)
+    if index_type not in {"code", "docs"}:
+        _typer.echo("Error: --type must be code or docs", err=True)
+        raise _typer.Exit(code=1)
+    from .file_walk import explain_path
+
+    project_root = require_project_root()
+    data = explain_path(project_root, explain, index_type=index_type)
+    if json_output:
+        _print_json(data)
+        return
+    _typer.echo(f"Path: {data['path']}")
+    _typer.echo(f"Index: {data['index']}")
+    _typer.echo(f"Included: {data['included']}")
+    _typer.echo(f"Reasons: {', '.join(data['reasons'])}")
+
+
+@app.command("scan")
+def scan(
+    dry_run: bool = _typer.Option(False, "--dry-run", help="List matched files without indexing"),
+    index_type: str = _typer.Option("code", "--type", help="Index type: code or docs"),
+    json_output: bool = _typer.Option(False, "--json", help="Emit structured JSON"),
+) -> None:
+    """Inspect files that would be scanned for an index."""
+    if not dry_run:
+        _typer.echo("Only --dry-run is currently supported.")
+        raise _typer.Exit(code=1)
+    if index_type not in {"code", "docs"}:
+        _typer.echo("Error: --type must be code or docs", err=True)
+        raise _typer.Exit(code=1)
+    from .file_walk import build_docs_matcher, build_matcher, iter_included_files
+    from .settings import load_project_settings
+
+    project_root = require_project_root()
+    ps = load_project_settings(project_root)
+    matcher = (
+        build_docs_matcher(project_root)
+        if index_type == "docs"
+        else build_matcher(
+            project_root,
+            ps.include_patterns,
+            ps.exclude_patterns,
+            forced_excluded_patterns=ps.always_exclude,
+            ragignore_file=ps.scan.ragignore_file,
+        )
+    )
+    files_list = [
+        rel.as_posix()
+        for _, rel in iter_included_files(project_root, project_root, matcher)
+    ]
+    data = {"schema_version": "repo-rag-scan-v1", "index": index_type, "files": files_list}
+    if json_output:
+        _print_json(data)
+        return
+    for item in files_list:
+        _typer.echo(item)
+
+
 @app.command()
 @_catch_daemon_start_error
 def status() -> None:
@@ -742,12 +1080,81 @@ def status() -> None:
     project_root = str(project_root_path)
     print_project_header(project_root)
 
-    _typer.echo(f"Settings: {format_path_for_display(project_settings_path(project_root_path))}")
+    settings_path = existing_project_settings_path(project_root_path) or project_settings_path(
+        project_root_path
+    )
+    _typer.echo(f"Settings: {format_path_for_display(settings_path)}")
     db_path = target_sqlite_db_path(project_root_path)
     if db_path.exists():
         _typer.echo(f"Index DB: {format_path_for_display(db_path)}")
 
     print_index_stats(_client.project_status(project_root))
+
+
+@app.command("verify")
+def verify(
+    json_output: bool = _typer.Option(False, "--json", help="Emit structured JSON"),
+) -> None:
+    """Check index rows against the current filesystem."""
+    from cocoindex.connectors import sqlite as coco_sqlite
+
+    project_root = require_project_root()
+    db_path = target_sqlite_db_path(project_root)
+    data: dict[str, object] = {
+        "schema_version": "repo-rag-verify-v1",
+        "ok": True,
+        "code": {"missing_files": []},
+        "docs": {"missing_files": []},
+    }
+    if not db_path.exists():
+        data["ok"] = False
+        data["error"] = {"code": "INDEX_NOT_READY", "message": "Index database does not exist"}
+    else:
+        conn = coco_sqlite.connect(str(db_path), load_vec=True)
+        try:
+            with conn.readonly() as db:
+                for table, key in [
+                    ("code_chunks_vec", "code"),
+                    ("docs_chunks_vec", "docs"),
+                ]:
+                    try:
+                        rows = db.execute(f"SELECT DISTINCT file_path FROM {table}").fetchall()
+                    except Exception:
+                        continue
+                    missing = [
+                        row[0]
+                        for row in rows
+                        if not (project_root / row[0]).exists()
+                    ]
+                    data[key] = {"missing_files": missing}
+                    if missing:
+                        data["ok"] = False
+        finally:
+            conn.close()
+    if json_output:
+        _print_json(data)
+        return
+    _typer.echo("OK" if data["ok"] else "FAILED")
+    for key in ["code", "docs"]:
+        missing = data[key]["missing_files"]  # type: ignore[index]
+        if missing:
+            _typer.echo(f"{key} missing files:")
+            for path in missing:
+                _typer.echo(f"  {path}")
+
+
+@app.command("rebuild")
+@_catch_daemon_start_error
+def rebuild(
+    index_type: str = _typer.Option("code", "--type", help="Index type: code, docs, or all"),
+) -> None:
+    """Rebuild an index by running the selected index type from current files."""
+    if index_type not in {"code", "docs", "all"}:
+        _typer.echo("Error: --type must be code, docs, or all", err=True)
+        raise _typer.Exit(code=1)
+    project_root = str(require_project_root())
+    print_project_header(project_root)
+    _run_index_with_progress(project_root, index_type=index_type)
 
 
 @app.command()
@@ -764,13 +1171,12 @@ def reset(
         cocoindex_db_path(project_root),
         target_sqlite_db_path(project_root),
     ]
-    settings_file = project_settings_path(project_root)
+    settings_files = project_settings_paths(project_root)
 
     # Determine what will be deleted
     to_delete = [f for f in db_files if f.exists()]
     if all_:
-        if settings_file.exists():
-            to_delete.append(settings_file)
+        to_delete.extend(f for f in settings_files if f.exists())
 
     if not to_delete and not all_:
         _typer.echo("Nothing to reset.")
@@ -823,7 +1229,7 @@ def reset(
         _typer.echo("Project fully reset.")
     else:
         _typer.echo("Databases deleted.")
-        if settings_file.exists():
+        if any(path.exists() for path in settings_files):
             _typer.echo(
                 "Settings file still exists. Run `ccc reset --all` to remove it too,\n"
                 "or edit it manually."
@@ -952,7 +1358,9 @@ def doctor(
     # --- 6. Project settings (local, no daemon needed) ---
     if project_root is not None:
         _print_section("Project Settings")
-        ps_path = project_settings_path(project_root)
+        ps_path = existing_project_settings_path(project_root) or project_settings_path(
+            project_root
+        )
         _typer.echo(f"  Settings: {format_path_for_display(ps_path)}")
         try:
             ps = _load_project_settings(project_root)

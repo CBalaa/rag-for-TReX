@@ -250,11 +250,11 @@ def test_docker_compose_smoke(docker_image: str, fixture_workspace: Path, tmp_pa
     compose_dst = tmp_path / "docker-compose.yml"
     shutil.copy2(compose_src, compose_dst)
 
-    # The compose file references cocoindex/cocoindex-code:latest (the published
+    # The compose file references rag4trex/rag4trex:latest (the published
     # release image). Tag the locally-built pytest image under that name so
     # `docker compose up` uses our local code instead of pulling from Docker Hub.
     subprocess.run(
-        ["docker", "tag", docker_image, "cocoindex/cocoindex-code:latest"],
+        ["docker", "tag", docker_image, "rag4trex/rag4trex:latest"],
         check=True,
     )
 
@@ -282,7 +282,7 @@ def test_docker_compose_smoke(docker_image: str, fixture_workspace: Path, tmp_pa
                     str(compose_dst),
                     "exec",
                     "-T",
-                    "cocoindex-code",
+                    "rag4trex",
                     "sh",
                     "-c",
                     "test -S /var/run/cocoindex_code/daemon.sock",
@@ -309,7 +309,7 @@ def test_docker_compose_smoke(docker_image: str, fixture_workspace: Path, tmp_pa
                 "-T",
                 "-e",
                 f"COCOINDEX_CODE_HOST_CWD={fixture_workspace}",
-                "cocoindex-code",
+                "rag4trex",
                 "ccc",
                 "init",
                 "-f",
@@ -329,7 +329,7 @@ def test_docker_compose_smoke(docker_image: str, fixture_workspace: Path, tmp_pa
                 "-T",
                 "-e",
                 f"COCOINDEX_CODE_HOST_CWD={fixture_workspace}",
-                "cocoindex-code",
+                "rag4trex",
                 "ccc",
                 "index",
             ],
@@ -348,7 +348,7 @@ def test_docker_compose_smoke(docker_image: str, fixture_workspace: Path, tmp_pa
                 "-T",
                 "-e",
                 f"COCOINDEX_CODE_HOST_CWD={fixture_workspace}",
-                "cocoindex-code",
+                "rag4trex",
                 "ccc",
                 "search",
                 "request",
